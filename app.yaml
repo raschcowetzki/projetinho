@@ -1,0 +1,15 @@
+command: [
+  "streamlit", 
+  "run",
+  "app.py"
+]
+
+env:
+  - name: "DATABRICKS_WAREHOUSE_ID"
+    value: "bf51ac18c6148a20"
+  - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+    value: "false"
+  - name: "JIRA_TOKEN"
+    valueFrom: "secret-jira"
+  - name: "GIT_TOKEN"
+    valueFrom: "secret-git"

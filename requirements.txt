@@ -1,0 +1,11 @@
+databricks-sdk==0.36.0
+databricks-sql-connector==3.4.0
+pandas==1.5.3
+requests==2.32.3
+sqlparse==0.5.1
+streamlit==1.39.0
+streamlit-code-editor==0.1.21
+streamlit-option-menu==0.4.0
+sql_metadata==2.15.0
+atlassian-python-api==3.41.19
+streamlit-tags==1.2.7

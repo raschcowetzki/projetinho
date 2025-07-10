@@ -1,0 +1,54 @@
+# Configurações de opções selecionáveis
+list_tipo_carga:
+  - "Full"
+  - "Append"
+  - "Upsert"
+
+list_periodo:
+  - "Diária"
+  - "Semanal"
+  - "Mensal"
+  - "Anual"
+
+list_tipo_objeto:
+  - "Permanente"
+  - "Temporário"
+
+list_criticidade:
+  - "Baixa"
+  - "Média"
+  - "Alta"
+
+list_retencao:
+  - "Contínua"
+  - "1 mês"
+  - "3 meses"
+  - "6 meses"
+  - "12 meses"
+
+list_horario:
+  - "09:00"
+  - "11:00"
+  - "18:00"
+  - "22:00"
+
+# Inicialização centralizada de valores padrão em session_state_exp
+DEFAULT_VALUES:
+  etapa_atual: 1
+  engine: ""
+  database: "teste"
+  table_name: ""
+  primary_key: []
+  metadados: []
+  tipo_carga: "Full"
+  periodicity: "Diária"
+  horario: "09:00"
+  tipo_objeto: "Permanente"
+  retencao: "Contínua"
+  criticidade: "Baixa"
+  temporalidade: "Inativa"
+  append_column: ""
+  query: ""
+  user: ""
+  description: ""
+  jira_link: ""
