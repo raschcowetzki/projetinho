@@ -220,63 +220,118 @@ def analyze_sentiment():
             st.session_state.step_sent = 1
             st.rerun()
 
-# Extração de Entidades
-
 def extract_entities():
-    if 'step_ext' not in st.session_state:
-        st.session_state.step_ext = 1
+    st.title("Extração de Entidade")
+    st.caption("Forneça uma consulta que retorne uma coluna de texto e escolha os tipos de entidades a extrair.")
 
-    if st.session_state.step_ext == 1:
-        st.caption("Forneça uma consulta que retorne uma coluna de texto para extração.")
-        query_text, col = _input_query_and_column("Extração de Entidade - Dados iniciais")
-        entity_types = st_tags(label='Tipos de entidade (ex.: person, organization, location, date, email, phone, url, money):',
-                               text='Pressione ENTER para adicionar mais', value=['person','organization','location'])
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Avançar", disabled=st.session_state.button_disabled):
-                st.session_state.ext_query = query_text
-                st.session_state.ext_col = col
-                st.session_state.ext_types = entity_types
-                st.session_state.step_ext = 2
-                st.rerun()
-        with col2:
-            if st.button("Limpar"):
-                st.session_state.step_ext = 1
-                st.rerun()
-    else:
-        st.title("Extração de Entidade - Resultado")
-        types_str = "'"+"','".join([t.strip() for t in st.session_state.ext_types if t.strip()])+"'"
-        with st.spinner("Extraindo entidades..."):
-            model_query = f"SELECT {st.session_state.ext_col} AS texto, ai_extract({st.session_state.ext_col}, ARRAY({types_str})) AS entidades FROM ({st.session_state.ext_query} limit 1000)"
-            df = sql_query(model_query)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        # Consolida contagens de entidades
+    # Editor de consulta
+    query_state = code_editor(
+        "",
+        lang="sql",
+        height="250px",
+        buttons=[
+            {"name": "Run", "feather": "Play", "hasText": True, "showWithIcon": True, "commands": ["submit"], "alwaysOn": True, "style": {"bottom": "6px", "right": "0.4rem"}}
+        ]
+    )
+    if not query_state['text']:
+        st.info("Escreva sua consulta acima e clique em Run para habilitar os parâmetros.")
+        return
+
+    # Inferir colunas e selecionar a coluna de texto
+    try:
+        df_zero = sql_query(f"SELECT * FROM ({query_state['text']}) LIMIT 0")
+        cols = list(df_zero.columns)
+        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None)
+    except Exception as e:
+        st.error(f"Não foi possível inferir as colunas: {e}")
+        return
+
+    # Parâmetros
+    st.subheader("Parâmetros")
+    p1, p2, p3 = st.columns([2,1,1])
+    with p1:
+        entity_types = st_tags(
+            label='Tipos de entidade (ex.: person, organization, location, date, email, phone, url, money):',
+            text='Pressione ENTER para adicionar mais',
+            value=['person','organization','location']
+        )
+    with p2:
+        limit = st.number_input("Limite de linhas", min_value=10, max_value=10000, value=1000, step=10)
+    with p3:
+        top_n = st.number_input("Top N (agregados)", min_value=5, max_value=100, value=30, step=5)
+
+    run = st.button("Executar extração", type="primary")
+    if not run:
+        return
+
+    # Executar extração
+    types = [t.strip() for t in entity_types if t and t.strip()]
+    if not types:
+        st.warning("Informe ao menos um tipo de entidade.")
+        return
+
+    types_str = "'" + "','".join(types) + "'"
+    with st.spinner("Extraindo entidades no warehouse..."):
+        q = f"SELECT {text_col} AS texto, ai_extract({text_col}, ARRAY({types_str})) AS entidades FROM ({query_state['text']}) LIMIT {int(limit)}"
         try:
-            long_rows = []
-            for _, row in df.iterrows():
-                ents = row.get('entidades')
-                if isinstance(ents, dict):
-                    for k, v in ents.items():
-                        if isinstance(v, list):
-                            for item in v:
-                                long_rows.append({"tipo": k, "valor": str(item)})
-                elif isinstance(ents, str):
-                    parsed = json.loads(ents)
-                    for k, v in parsed.items():
-                        for item in v:
-                            long_rows.append({"tipo": k, "valor": str(item)})
-            if long_rows:
-                df_long = pd.DataFrame(long_rows)
-                counts = df_long.groupby(["tipo", "valor"]).size().reset_index(name="quantidade")
-                top = counts.sort_values("quantidade", ascending=False).head(30)
-                fig = px.bar(top, x="valor", y="quantidade", color="tipo", title="Top Entidades Extraídas")
-                st.plotly_chart(fig, use_container_width=True)
+            df_raw = sql_query(q)
         except Exception as e:
-            st.warning(f"Não foi possível agregar as entidades automaticamente: {e}")
-        _download_button(df, "Baixar resultados (CSV)", "entidades.csv")
-        if st.button("Voltar"):
-            st.session_state.step_ext = 1
-            st.rerun()
+            st.error(f"Falha ao executar extração: {e}")
+            return
+
+    st.subheader("Resultados")
+    tab_raw, tab_long, tab_aggs = st.tabs(["Tabela (bruta)", "Entidades (normalizadas)", "Agregados"]) 
+
+    with tab_raw:
+        st.dataframe(df_raw, use_container_width=True, hide_index=True)
+        _download_button(df_raw, "Baixar resultados (CSV)", "entidades_bruto.csv")
+
+    # Normalização das entidades
+    def _flatten_entities(df: pd.DataFrame) -> pd.DataFrame:
+        rows = []
+        for idx, row in df.iterrows():
+            ents = row.get('entidades')
+            if ents is None:
+                continue
+            try:
+                if isinstance(ents, str):
+                    ents = json.loads(ents)
+            except Exception:
+                pass
+            if isinstance(ents, dict):
+                for ent_type, ent_values in ents.items():
+                    if isinstance(ent_values, list):
+                        for v in ent_values:
+                            rows.append({"linha": idx, "tipo": ent_type, "valor": str(v)})
+                    else:
+                        rows.append({"linha": idx, "tipo": ent_type, "valor": str(ent_values)})
+            elif isinstance(ents, list):
+                for v in ents:
+                    rows.append({"linha": idx, "tipo": "unknown", "valor": str(v)})
+            else:
+                rows.append({"linha": idx, "tipo": "unknown", "valor": str(ents)})
+        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["linha","tipo","valor"])
+
+    df_long = _flatten_entities(df_raw)
+
+    with tab_long:
+        if df_long.empty:
+            st.info("Nenhuma entidade foi detectada.")
+        else:
+            st.dataframe(df_long, use_container_width=True, hide_index=True)
+            _download_button(df_long, "Baixar entidades (CSV)", "entidades_normalizadas.csv")
+
+    with tab_aggs:
+        if df_long.empty:
+            st.info("Sem dados para agregar.")
+        else:
+            counts = df_long.groupby(["tipo", "valor"]).size().reset_index(name="quantidade")
+            top = counts.sort_values("quantidade", ascending=False).head(int(top_n))
+            fig = px.bar(top, x="valor", y="quantidade", color="tipo", title="Top entidades extraídas")
+            st.plotly_chart(fig, use_container_width=True)
+            by_type = df_long.groupby("tipo").size().reset_index(name="quantidade")
+            fig2 = px.pie(by_type, names='tipo', values='quantidade', title='Distribuição por tipo')
+            st.plotly_chart(fig2, use_container_width=True)
 
 # Geração de Texto (ai_gen)
 
@@ -603,6 +658,284 @@ def classify():
         etapa_1()
     elif st.session_state.etapa_atual == 2:
         etapa_2()
+
+# ----------------------------
+# Anomalias em séries temporais
+# ----------------------------
+
+def anomaly_detection_page():
+    st.title("Detecção de Anomalias")
+    st.caption("Forneça uma consulta com tempo e valor; identifique outliers estatísticos e visualize no gráfico.")
+
+    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
+    if not qstate['text']:
+        st.info("Escreva sua consulta e clique em Run.")
+        return
+
+    # Inferência
+    try:
+        df_zero = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 0")
+        cols = list(df_zero.columns)
+        time_col = st.selectbox("Coluna de tempo", options=cols, index=0 if cols else None)
+        value_col = st.selectbox("Coluna de valor", options=[c for c in cols if c != time_col], index=0 if len(cols) > 1 else None)
+    except Exception as e:
+        st.error(f"Não foi possível inferir colunas: {e}")
+        return
+
+    st.subheader("Parâmetros")
+    c1, c2, c3 = st.columns([1,1,1])
+    with c1:
+        window = st.number_input("Janela (média móvel)", min_value=3, max_value=365, value=20)
+    with c2:
+        z_thresh = st.number_input("Z-score limite", min_value=1.0, max_value=10.0, value=3.0)
+    with c3:
+        limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100)
+
+    run = st.button("Detectar anomalias", type="primary")
+    if not run:
+        return
+
+    with st.spinner("Executando consulta..."):
+        df = sql_query(f"SELECT {time_col} AS ds, {value_col} AS y FROM ({qstate['text']}) ORDER BY {time_col} LIMIT {int(limit)}")
+    if df.empty:
+        st.warning("Sem dados retornados.")
+        return
+
+    # Detectar anomalias: z-score sobre resíduo da média móvel
+    df['ds'] = pd.to_datetime(df['ds'])
+    y_num = pd.to_numeric(df['y'], errors='coerce')
+    roll = y_num.rolling(int(window), min_periods=5).mean()
+    resid = y_num - roll
+    std = resid.rolling(int(window), min_periods=5).std()
+    z = (resid / std).abs()
+    df['is_anomaly'] = (z > z_thresh)
+
+    # Gráfico
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df['ds'], y=y_num, name='Valor', mode='lines', line=dict(color='#2a9d8f')))
+    anom = df[df['is_anomaly']]
+    if not anom.empty:
+        fig.add_trace(go.Scatter(x=anom['ds'], y=pd.to_numeric(anom['y'], errors='coerce'), mode='markers', name='Anomalias', marker=dict(color='#e76f51', size=9)))
+    fig.update_layout(title='Série e Anomalias (z-score de resíduos)', xaxis_title='Tempo', yaxis_title=value_col)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Resultados")
+    st.dataframe(df[['ds','y','is_anomaly']], use_container_width=True, hide_index=True)
+    _download_button(df[['ds','y','is_anomaly']], "Baixar (CSV)", "anomalias.csv")
+
+# ----------------------------
+# Extração de tópicos / frases-chave
+# ----------------------------
+
+def topic_extraction_page():
+    st.title("Extração de Tópicos")
+    st.caption("Extraia tópicos e frases-chave de um conjunto de textos e visualize sua frequência.")
+
+    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
+    if not qstate['text']:
+        st.info("Escreva sua consulta e clique em Run.")
+        return
+
+    try:
+        df_zero = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 0")
+        cols = list(df_zero.columns)
+        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None)
+    except Exception as e:
+        st.error(f"Não foi possível inferir colunas: {e}")
+        return
+
+    st.subheader("Parâmetros")
+    c1, c2 = st.columns([2,1])
+    with c1:
+        default_types = ['topic', 'key_phrase']
+        types = st_tags(label='Tipos de extração (ex.: topic, key_phrase):', text='Pressione ENTER para adicionar', value=default_types)
+    with c2:
+        limit = st.number_input("Limite de linhas", min_value=50, max_value=10000, value=1000, step=50)
+
+    run = st.button("Extrair tópicos", type="primary")
+    if not run:
+        return
+
+    types_clean = [t.strip() for t in types if t and t.strip()]
+    if not types_clean:
+        st.warning("Informe ao menos um tipo de extração.")
+        return
+
+    types_str = "'" + "','".join(types_clean) + "'"
+    with st.spinner("Executando ai_extract..."):
+        q = f"SELECT {text_col} AS texto, ai_extract({text_col}, ARRAY({types_str})) AS extracao FROM ({qstate['text']}) LIMIT {int(limit)}"
+        try:
+            df_raw = sql_query(q)
+        except Exception as e:
+            st.error(f"Falha em ai_extract: {e}")
+            return
+
+    # Normalizar
+    def _flatten(df):
+        rows = []
+        for idx, row in df.iterrows():
+            data = row.get('extracao')
+            if data is None:
+                continue
+            try:
+                if isinstance(data, str):
+                    data = json.loads(data)
+            except Exception:
+                pass
+            if isinstance(data, dict):
+                for k, vals in data.items():
+                    if isinstance(vals, list):
+                        for v in vals:
+                            rows.append({"linha": idx, "tipo": k, "valor": str(v)})
+                    else:
+                        rows.append({"linha": idx, "tipo": k, "valor": str(vals)})
+        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=['linha','tipo','valor'])
+
+    df_long = _flatten(df_raw)
+
+    st.subheader("Resultados")
+    tabs = st.tabs(["Tabela (bruta)", "Normalizada", "Agregados"]) 
+    with tabs[0]:
+        st.dataframe(df_raw, use_container_width=True, hide_index=True)
+        _download_button(df_raw, "Baixar bruto (CSV)", "topicos_bruto.csv")
+    with tabs[1]:
+        st.dataframe(df_long, use_container_width=True, hide_index=True)
+        _download_button(df_long, "Baixar extração (CSV)", "topicos_normalizado.csv")
+    with tabs[2]:
+        if df_long.empty:
+            st.info("Sem dados.")
+        else:
+            counts = df_long.groupby(["tipo","valor"]).size().reset_index(name="quantidade").sort_values("quantidade", ascending=False)
+            fig = px.bar(counts.head(40), x="valor", y="quantidade", color="tipo", title="Top tópicos / frases")
+            st.plotly_chart(fig, use_container_width=True)
+
+# ----------------------------
+# PII / Redação (mascaramento)
+# ----------------------------
+
+def pii_redaction_page():
+    st.title("Mascaramento de PII")
+    st.caption("Detecte e mascare informações sensíveis (PII) em textos.")
+
+    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
+    if not qstate['text']:
+        st.info("Escreva sua consulta e clique em Run.")
+        return
+
+    try:
+        df_zero = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 0")
+        cols = list(df_zero.columns)
+        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None)
+    except Exception as e:
+        st.error(f"Não foi possível inferir colunas: {e}")
+        return
+
+    st.subheader("Parâmetros")
+    pii_defaults = ['person','email','phone','credit_card','bank_account','ssn','address']
+    types = st_tags(label='Tipos de PII:', text='Pressione ENTER para adicionar', value=pii_defaults)
+    mask_token = st.text_input("Token de máscara", value="[REDACTED]")
+    limit = st.number_input("Limite de linhas", min_value=50, max_value=10000, value=1000, step=50)
+
+    run = st.button("Mascarar", type="primary")
+    if not run:
+        return
+
+    t_clean = [t.strip() for t in types if t and t.strip()]
+    t_str = "'" + "','".join(t_clean) + "'"
+    with st.spinner("Detectando PII..."):
+        q = f"SELECT {text_col} AS texto, ai_extract({text_col}, ARRAY({t_str})) AS pii FROM ({qstate['text']}) LIMIT {int(limit)}"
+        try:
+            df = sql_query(q)
+        except Exception as e:
+            st.error(f"Falha ao extrair PII: {e}")
+            return
+
+    # Aplicar máscara
+    def _mask_text(row):
+        text = str(row['texto'])
+        ents = row.get('pii')
+        try:
+            if isinstance(ents, str):
+                ents = json.loads(ents)
+        except Exception:
+            pass
+        if isinstance(ents, dict):
+            for _, vals in ents.items():
+                if isinstance(vals, list):
+                    for v in vals:
+                        try:
+                            text = text.replace(str(v), mask_token)
+                        except Exception:
+                            continue
+        return text
+
+    df['mascarado'] = df.apply(_mask_text, axis=1)
+
+    st.subheader("Resultados")
+    st.dataframe(df[['texto','mascarado','pii']], use_container_width=True, hide_index=True)
+    _download_button(df[['texto','mascarado','pii']], "Baixar (CSV)", "pii_mascarado.csv")
+
+# ----------------------------
+# Similaridade / Deduplicação (aprox.)
+# ----------------------------
+
+def similarity_page():
+    st.title("Similaridade e Deduplicação")
+    st.caption("Encontre textos semelhantes ou duplicados (aproximação via Jaccard de tokens).")
+
+    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
+    if not qstate['text']:
+        st.info("Escreva sua consulta e clique em Run.")
+        return
+
+    try:
+        df = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 1000")
+        cols = list(df.columns)
+        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None)
+    except Exception as e:
+        st.error(f"Erro ao executar consulta: {e}")
+        return
+
+    st.subheader("Parâmetros")
+    c1, c2 = st.columns([1,1])
+    with c1:
+        threshold = st.slider("Limiar de similaridade (Jaccard)", min_value=0.1, max_value=0.9, value=0.7, step=0.05)
+    with c2:
+        max_pairs = st.number_input("Máx. pares retornados", min_value=20, max_value=5000, value=200, step=20)
+
+    run = st.button("Detectar similares", type="primary")
+    if not run:
+        return
+
+    # Similaridade aproximada Jaccard sobre tokens simples
+    texts = df[text_col].astype(str).tolist()
+    tokenized = [set(t.lower().split()) for t in texts]
+    pairs = []
+    n = len(tokenized)
+    for i in range(n):
+        for j in range(i+1, n):
+            a, b = tokenized[i], tokenized[j]
+            if not a or not b:
+                continue
+            inter = len(a & b)
+            union = len(a | b)
+            sim = inter / union if union else 0.0
+            if sim >= threshold:
+                pairs.append({"idx_a": i, "idx_b": j, "sim_jaccard": sim, "texto_a": texts[i][:300], "texto_b": texts[j][:300]})
+            if len(pairs) >= max_pairs:
+                break
+        if len(pairs) >= max_pairs:
+            break
+
+    res = pd.DataFrame(pairs)
+    if res.empty:
+        st.info("Nenhum par semelhante encontrado com o limiar atual.")
+        return
+
+    st.subheader("Resultados")
+    st.dataframe(res, use_container_width=True, hide_index=True)
+    _download_button(res, "Baixar pares (CSV)", "similares.csv")
 
 
 

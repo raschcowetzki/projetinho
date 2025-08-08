@@ -67,6 +67,10 @@ with st.sidebar:
             "Sumarização",
             "Correção de Gramática",
             "Detecção de Idioma",
+            "Detecção de Anomalias",
+            "Extração de Tópicos",
+            "Mascaramento de PII",
+            "Similaridade/Dedup",
             "Genie Chat",
             "AutoML",
             "Sobre"
@@ -81,6 +85,10 @@ with st.sidebar:
             "journal-text",
             "spellcheck",
             "globe2",
+            "activity",          # Detecção de Anomalias
+            "list-ul",           # Extração de Tópicos
+            "shield-lock",       # PII
+            "collection",        # Similaridade
             "chat",
             "cpu",
             "info-circle"
@@ -111,6 +119,14 @@ elif st.session_state.selected == "Correção de Gramática":
     fix_grammar_page()
 elif st.session_state.selected == "Detecção de Idioma":
     detect_language_page()
+elif st.session_state.selected == "Detecção de Anomalias":
+    anomaly_detection_page()
+elif st.session_state.selected == "Extração de Tópicos":
+    topic_extraction_page()
+elif st.session_state.selected == "Mascaramento de PII":
+    pii_redaction_page()
+elif st.session_state.selected == "Similaridade/Dedup":
+    similarity_page()
 elif st.session_state.selected == "Genie Chat":
     genie_chat()
 elif st.session_state.selected == "AutoML":
