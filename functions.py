@@ -444,12 +444,36 @@ def forecast_projection():
     if not run:
         return
 
+    # Consultar histórico primeiro (necessário para calcular horizon como TIMESTAMP)
+    with st.spinner("Consultando dados históricos..."):
+        df_hist = sql_query(f"SELECT {time_col} AS ds, {value_col} AS y FROM ({query_state['text']}) ORDER BY {time_col}")
+    if df_hist.empty:
+        st.warning("A consulta não retornou dados.")
+        return
+
+    # Calcular horizonte como TIMESTAMP/STRING aceito pela TVF
+    try:
+        df_hist['ds'] = pd.to_datetime(df_hist['ds'])
+        last_date = df_hist['ds'].max()
+        if frequency == 'D':
+            horizon_end = last_date + pd.Timedelta(days=int(horizon))
+        elif frequency == 'W':
+            horizon_end = last_date + pd.Timedelta(weeks=int(horizon))
+        else:
+            horizon_end = last_date + pd.DateOffset(months=int(horizon))
+        horizon_str = horizon_end.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception as e:
+        st.error(f"Falha ao calcular o horizonte da previsão: {e}")
+        return
+
     # Executa ai_forecast no warehouse
     with st.spinner("Gerando previsão com ai_forecast..."):
-        # Monta a subconsulta base, renomeando colunas para ds / y
         base_sql = f"SELECT {time_col} AS ds, {value_col} AS y FROM ({query_state['text']})"
-        # Monta a chamada de função em formato TVF exigindo TABLE(...)
-        forecast_sql = f"SELECT * FROM ai_forecast(TABLE({base_sql}), time_col => 'ds', value_col => 'y', horizon => {int(horizon)})"
+        forecast_sql = (
+            f"SELECT * FROM ai_forecast("
+            f"TABLE({base_sql}), time_col => 'ds', value_col => 'y', horizon => '{horizon_str}'"
+            f")"
+        )
         try:
             df_fc = sql_query(forecast_sql)
         except Exception as e:
@@ -460,15 +484,13 @@ def forecast_projection():
         st.warning("A função ai_forecast não retornou dados.")
         return
 
-    # Espera-se que o retorno contenha colunas como ds, y_forecast, y_lower, y_upper (nomes podem variar por versão)
-    # Tentamos detectar colunas por padrão:
+    # Mapear colunas retornadas
     col_map = {
         'ds': None,
         'yhat': None,
         'yhat_lower': None,
         'yhat_upper': None
     }
-    # candidatos comuns
     candidates = {
         'ds': ['ds', 'date', 'timestamp', time_col],
         'yhat': ['y_forecast', 'yhat', 'forecast', 'prediction'],
@@ -486,17 +508,11 @@ def forecast_projection():
         st.write("Colunas retornadas:", list(df_fc.columns))
         return
 
-    # Dados históricos para plot combinado
-    with st.spinner("Consultando dados históricos..."):
-        df_hist = sql_query(f"SELECT {time_col} AS ds, {value_col} AS y FROM ({query_state['text']}) ORDER BY {time_col}")
-
     # Plot completo com intervalo
     try:
         import plotly.graph_objects as go
         fig = go.Figure()
-        # Histórico
         fig.add_trace(go.Scatter(x=pd.to_datetime(df_hist['ds']), y=pd.to_numeric(df_hist['y'], errors='coerce'), name='Histórico', mode='lines', line=dict(color='#2a9d8f')))
-        # Banda de confiança (se disponível)
         if col_map['yhat_lower'] and col_map['yhat_upper']:
             fig.add_traces([
                 go.Scatter(
@@ -510,7 +526,6 @@ def forecast_projection():
                     mode='lines', line=dict(width=0), name='Limite Inferior', fill='tonexty', fillcolor='rgba(63,161,16,0.2)', showlegend=False
                 )
             ])
-        # Previsão principal
         fig.add_trace(go.Scatter(x=pd.to_datetime(df_fc[col_map['ds']]), y=pd.to_numeric(df_fc[col_map['yhat']], errors='coerce'), name='Projeção', mode='lines', line=dict(color='#3FA110')))
         fig.update_layout(title='Histórico e Projeção com Intervalo (ai_forecast)', xaxis_title='Tempo', yaxis_title=value_col)
         st.plotly_chart(fig, use_container_width=True)
