@@ -448,9 +448,8 @@ def forecast_projection():
     with st.spinner("Gerando previsão com ai_forecast..."):
         # Monta a subconsulta base, renomeando colunas para ds / y
         base_sql = f"SELECT {time_col} AS ds, {value_col} AS y FROM ({query_state['text']})"
-        # Monta a chamada de função. Ai_forecast aceita tabela e colunas, dependendo da versão, mas a forma mais geral é aplicar sobre subconsulta.
-        # Exemplo típico: SELECT * FROM ai_forecast((SELECT ds, y FROM ...), time_col => 'ds', value_col => 'y', horizon => 30)
-        forecast_sql = f"SELECT * FROM ai_forecast(( {base_sql} ), time_col => 'ds', value_col => 'y', horizon => {int(horizon)})"
+        # Monta a chamada de função em formato TVF exigindo TABLE(...)
+        forecast_sql = f"SELECT * FROM ai_forecast(TABLE({base_sql}), time_col => 'ds', value_col => 'y', horizon => {int(horizon)})"
         try:
             df_fc = sql_query(forecast_sql)
         except Exception as e:
