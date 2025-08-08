@@ -425,89 +425,104 @@ def forecast_projection():
         return
 
     # Inferência de colunas
-    time_col = None
-    target_col = None
     try:
         df_zero = sql_query(f"SELECT * FROM ({query_state['text']}) LIMIT 0")
         cols = list(df_zero.columns)
         time_col = st.selectbox("Coluna de tempo", options=cols, index=0 if cols else None)
-        numeric_cols = [c for c in cols if c != time_col]
-        target_col = st.selectbox("Coluna alvo (valor)", options=numeric_cols, index=0 if numeric_cols else None)
+        value_col = st.selectbox("Coluna alvo (valor)", options=[c for c in cols if c != time_col], index=0 if len(cols) > 1 else None)
     except Exception as e:
         st.error(f"Não foi possível inferir as colunas: {e}")
         return
 
-    col_a, col_b, col_c = st.columns([1,1,1])
+    col_a, col_b = st.columns([1,1])
     with col_a:
         frequency = st.selectbox("Frequência", ["D","W","M"], index=0, help="Periodicidade dos dados")
     with col_b:
         horizon = st.number_input("Horizonte (períodos)", min_value=1, max_value=365, value=30)
-    with col_c:
-        use_automl = st.toggle("Executar AutoML no Databricks", value=False)
 
     run = st.button("Executar previsão", type="primary")
     if not run:
         return
 
-    with st.spinner("Consultando dados históricos..."):
-        df_hist = sql_query(f"SELECT {time_col} AS ds, {target_col} AS y FROM ({query_state['text']}) ORDER BY {time_col}")
-
-    if df_hist.empty:
-        st.warning("A consulta não retornou dados.")
-        return
-
-    # Forecast baseline simples (persistência do último valor)
-    try:
-        df_hist['ds'] = pd.to_datetime(df_hist['ds'])
-        last_date = df_hist['ds'].max()
-        if frequency == 'D':
-            future_index = pd.date_range(last_date, periods=horizon+1, freq='D')[1:]
-        elif frequency == 'W':
-            future_index = pd.date_range(last_date, periods=horizon+1, freq='W')[1:]
-        else:
-            future_index = pd.date_range(last_date, periods=horizon+1, freq='MS')[1:]
-        last_value = float(pd.to_numeric(df_hist['y'], errors='coerce').dropna().iloc[-1])
-        df_fc = pd.DataFrame({"ds": future_index, "yhat": [last_value]*len(future_index)})
-    except Exception as e:
-        st.error(f"Falha ao construir baseline: {e}")
-        return
-
-    # Plot
-    hist_plot = df_hist.rename(columns={"y": "valor"})
-    fc_plot = df_fc.rename(columns={"yhat": "valor"})
-    hist_plot['tipo'] = 'Histórico'
-    fc_plot['tipo'] = 'Projeção'
-    plot_df = pd.concat([hist_plot, fc_plot], ignore_index=True)
-    fig = px.line(plot_df, x='ds', y='valor', color='tipo', title='Histórico e Projeção (baseline)')
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Tabela combinada e download
-    df_out = df_hist.copy()
-    df_out['yhat'] = None
-    fc_out = pd.DataFrame({"ds": df_fc['ds'], "y": None, "yhat": df_fc['yhat']})
-    results = pd.concat([df_out, fc_out], ignore_index=True)
-    st.dataframe(results.tail(horizon+5), use_container_width=True, hide_index=True)
-    _download_button(results, "Baixar projeção (CSV)", "projecao.csv")
-
-    # AutoML opcional
-    if use_automl:
+    # Executa ai_forecast no warehouse
+    with st.spinner("Gerando previsão com ai_forecast..."):
+        # Monta a subconsulta base, renomeando colunas para ds / y
+        base_sql = f"SELECT {time_col} AS ds, {value_col} AS y FROM ({query_state['text']})"
+        # Monta a chamada de função. Ai_forecast aceita tabela e colunas, dependendo da versão, mas a forma mais geral é aplicar sobre subconsulta.
+        # Exemplo típico: SELECT * FROM ai_forecast((SELECT ds, y FROM ...), time_col => 'ds', value_col => 'y', horizon => 30)
+        forecast_sql = f"SELECT * FROM ai_forecast(( {base_sql} ), time_col => 'ds', value_col => 'y', horizon => {int(horizon)})"
         try:
-            import databricks.automl as automl
-        except Exception:
-            automl = None
-        if automl is None:
-            st.warning("AutoML não disponível neste ambiente. Execute em um cluster Databricks.")
-        else:
-            with st.spinner("Iniciando AutoML Forecast..."):
-                try:
-                    summary = automl.forecast(dataset=df_hist, target_col='y', time_col='ds', frequency=frequency, horizon=int(horizon))
-                    st.success("AutoML iniciado/finalizado. Veja abaixo os detalhes retornados.")
-                    try:
-                        st.json(summary)
-                    except Exception:
-                        st.write(summary)
-                except Exception as e:
-                    st.error(f"Falha ao executar AutoML: {e}")
+            df_fc = sql_query(forecast_sql)
+        except Exception as e:
+            st.error(f"Falha ao executar ai_forecast: {e}")
+            return
+
+    if df_fc.empty:
+        st.warning("A função ai_forecast não retornou dados.")
+        return
+
+    # Espera-se que o retorno contenha colunas como ds, y_forecast, y_lower, y_upper (nomes podem variar por versão)
+    # Tentamos detectar colunas por padrão:
+    col_map = {
+        'ds': None,
+        'yhat': None,
+        'yhat_lower': None,
+        'yhat_upper': None
+    }
+    # candidatos comuns
+    candidates = {
+        'ds': ['ds', 'date', 'timestamp', time_col],
+        'yhat': ['y_forecast', 'yhat', 'forecast', 'prediction'],
+        'yhat_lower': ['y_lower', 'yhat_lower', 'lower_bound', 'lo'],
+        'yhat_upper': ['y_upper', 'yhat_upper', 'upper_bound', 'hi']
+    }
+    for key, names in candidates.items():
+        for n in names:
+            if n in df_fc.columns:
+                col_map[key] = n
+                break
+
+    if not col_map['ds'] or not col_map['yhat']:
+        st.error("Não foi possível identificar as colunas de data e previsão retornadas por ai_forecast.")
+        st.write("Colunas retornadas:", list(df_fc.columns))
+        return
+
+    # Dados históricos para plot combinado
+    with st.spinner("Consultando dados históricos..."):
+        df_hist = sql_query(f"SELECT {time_col} AS ds, {value_col} AS y FROM ({query_state['text']}) ORDER BY {time_col}")
+
+    # Plot completo com intervalo
+    try:
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        # Histórico
+        fig.add_trace(go.Scatter(x=pd.to_datetime(df_hist['ds']), y=pd.to_numeric(df_hist['y'], errors='coerce'), name='Histórico', mode='lines', line=dict(color='#2a9d8f')))
+        # Banda de confiança (se disponível)
+        if col_map['yhat_lower'] and col_map['yhat_upper']:
+            fig.add_traces([
+                go.Scatter(
+                    x=pd.to_datetime(df_fc[col_map['ds']]),
+                    y=pd.to_numeric(df_fc[col_map['yhat_upper']], errors='coerce'),
+                    mode='lines', line=dict(width=0), name='Limite Superior', showlegend=False
+                ),
+                go.Scatter(
+                    x=pd.to_datetime(df_fc[col_map['ds']]),
+                    y=pd.to_numeric(df_fc[col_map['yhat_lower']], errors='coerce'),
+                    mode='lines', line=dict(width=0), name='Limite Inferior', fill='tonexty', fillcolor='rgba(63,161,16,0.2)', showlegend=False
+                )
+            ])
+        # Previsão principal
+        fig.add_trace(go.Scatter(x=pd.to_datetime(df_fc[col_map['ds']]), y=pd.to_numeric(df_fc[col_map['yhat']], errors='coerce'), name='Projeção', mode='lines', line=dict(color='#3FA110')))
+        fig.update_layout(title='Histórico e Projeção com Intervalo (ai_forecast)', xaxis_title='Tempo', yaxis_title=value_col)
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Falha ao montar o gráfico: {e}")
+
+    # Tabelas e download
+    st.subheader("Resultados")
+    cols_show = [c for c in [col_map['ds'], col_map['yhat_lower'], col_map['yhat'], col_map['yhat_upper']] if c]
+    st.dataframe(df_fc[cols_show], use_container_width=True, hide_index=True)
+    _download_button(df_fc[cols_show], "Baixar projeção (CSV)", "projecao_ai_forecast.csv")
 
 # Genie Chat (embed)
 
