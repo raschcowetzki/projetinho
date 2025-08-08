@@ -17,15 +17,29 @@ st.set_page_config(
     }
 )
 
-# Tira o botão fullscrean dos elementos
-disable_fs = '''
+# Estilos globais e UX
+global_css = '''
 <style>
+/***** Oculta fullscreen dos gráficos *****/
 button[title="View fullscreen"]{visibility: hidden; display: none;}
 .st-emotion-cache-1u2dcfn{visibility: hidden; display: none;}
 .st-emotion-cache-gi0tri {visibility: hidden; display: none;}
+
+/***** Sidebar *****/
+section[data-testid="stSidebar"] > div {background: linear-gradient(180deg, #0b3d0b 0%, #145214 100%);}
+section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3, section[data-testid="stSidebar"] p {color: #FFFFFF !important;}
+
+/***** Option Menu tweaks *****/
+ul.nav.nav-pills {gap: 4px;}
+ul.nav.nav-pills li a {border-radius: 8px !important; padding: 10px 12px !important; color: #f8f9fa !important;}
+ul.nav.nav-pills li a:hover {background-color: rgba(255,255,255,0.10) !important;}
+ul.nav.nav-pills li a.active {background-color: #3FA110 !important; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);} 
+
+/***** Main headings *****/
+h1, h2, h3 { letter-spacing: 0.2px; }
 </style>
 '''
-st.markdown(disable_fs, True)
+st.markdown(global_css, True)
 
 # Defaults de sessão
 if "etapa_atual" not in st.session_state:
@@ -38,8 +52,11 @@ def on_change(key):
 # Função do Menu do APP  
 with st.sidebar:
     st.image("assets/img/logo_gold.png")
+    st.markdown("### Mini Cientista")
+    st.caption("Seu cientista de dados de bolso no Databricks")
+    st.divider()
     st.session_state.selected = option_menu (
-        menu_title = "",
+        menu_title = "Navegação",
         options = [
             "Projeção",
             "Análise de Sentimento",
@@ -54,12 +71,26 @@ with st.sidebar:
             "AutoML",
             "Sobre"
         ],
+        icons=[
+            "graph-up",
+            "emoji-smile",
+            "tags",
+            "search",
+            "chat-dots",
+            "translate",
+            "journal-text",
+            "spellcheck",
+            "globe2",
+            "chat",
+            "cpu",
+            "info-circle"
+        ],
         on_change = on_change, key = '1',
         styles={
             "container": {"background-color": "rgba(255, 255, 255, 0)"},
-            "icon": {"color": "white", "font-size": "20px"},
-            "nav-link": {"font-size": "17px", "text-align": "left"},
-            "nav-link-selected": {"font-size": "19px", "background-color": "#3FA110"}}
+            "icon": {"color": "#f0f0f0", "font-size": "18px"},
+            "nav-link": {"font-size": "16px", "text-align": "left", "margin":"0px"},
+            "nav-link-selected": {"font-size": "16px", "background-color": "#3FA110"}}
         )
 
 if st.session_state.selected == "Projeção":
