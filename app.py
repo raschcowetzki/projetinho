@@ -94,7 +94,7 @@ if st.session_state.selected == "Projeção":
 elif st.session_state.selected == "Análise de Sentimento":
     analyze_sentiment()
 elif st.session_state.selected == "Classificação":
-    classify()
+    classification_page()
 elif st.session_state.selected == "Detecção de Anomalias":
     anomaly_detection_page()
 elif st.session_state.selected == "Extração de Tópicos":
