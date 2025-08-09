@@ -1117,10 +1117,34 @@ def eda_page():
         st.warning("Sem dados retornados.")
         return
 
-    # Identificação de tipos e seleção de papéis (fora das abas)
-    st.caption("Seleção de colunas")
+    # Inferir tipos (usados na visão geral) e para sugerir seleção
     inferred_num = df.select_dtypes(include=['number']).columns.tolist()
     inferred_cat = df.select_dtypes(include=['object']).columns.tolist()
+
+    # Visão geral (usa inferência automática)
+    st.subheader("Visão Geral")
+    n_rows, n_cols = df.shape
+    dtypes = df.dtypes.astype(str)
+    null_counts = df.isna().sum()
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Linhas", f"{n_rows}")
+    m2.metric("Colunas", f"{n_cols}")
+    m3.metric("Numéricas (auto)", f"{len(inferred_num)}")
+    m4.metric("Categóricas (auto)", f"{len(inferred_cat)}")
+
+    with st.expander("Tipos de dados e nulos"):
+        st.write("Tipos de dados")
+        st.dataframe(pd.DataFrame({"coluna": dtypes.index, "tipo": dtypes.values}), use_container_width=True, hide_index=True)
+        st.write("Nulos por coluna")
+        st.dataframe(pd.DataFrame({"coluna": null_counts.index, "nulos": null_counts.values}), use_container_width=True, hide_index=True)
+
+    # Prévia vem antes da seleção de colunas
+    st.subheader("Prévia dos dados")
+    st.dataframe(df.head(200), use_container_width=True, hide_index=True)
+    _download_button(df, "Baixar amostra (CSV)", "amostra.csv")
+
+    # Seleção de colunas (entre Prévia e as Abas)
+    st.caption("Seleção de colunas")
     c1, c2 = st.columns(2)
     with c1:
         st.caption("Numéricas")
@@ -1129,31 +1153,9 @@ def eda_page():
         st.caption("Categóricas")
         cat_cols = st.multiselect("Colunas categóricas", options=df.columns.tolist(), default=inferred_cat, key='eda_cat_cols', label_visibility='collapsed')
 
-    # Visão geral
-    st.subheader("Visão Geral")
-    n_rows, n_cols = df.shape
-    dtypes = df.dtypes.astype(str)
-    null_counts = df.isna().sum()
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Linhas", f"{n_rows}")
-    m2.metric("Colunas", f"{n_cols}")
-    m3.metric("Numéricas", f"{len(num_cols)}")
-    m4.metric("Categóricas", f"{len(cat_cols)}")
-
-    with st.expander("Tipos de dados e nulos"):
-        st.write("Tipos de dados")
-        st.dataframe(pd.DataFrame({"coluna": dtypes.index, "tipo": dtypes.values}), use_container_width=True, hide_index=True)
-        st.write("Nulos por coluna")
-        st.dataframe(pd.DataFrame({"coluna": null_counts.index, "nulos": null_counts.values}), use_container_width=True, hide_index=True)
-
-    st.subheader("Prévia dos dados")
-    st.dataframe(df.head(200), use_container_width=True, hide_index=True)
-    _download_button(df, "Baixar amostra (CSV)", "amostra.csv")
-
-    # Abas de análise (não redefinem seleção de colunas)
+    # Abas de análise
     tabs = st.tabs(["Numéricas", "Categóricas", "Correlação", "Insights (IA)"])
 
-    # Numéricas
     with tabs[0]:
         if not num_cols:
             st.info("Selecione ao menos uma coluna numérica.")
@@ -1174,7 +1176,6 @@ def eda_page():
                 except Exception:
                     continue
 
-    # Categóricas
     with tabs[1]:
         if not cat_cols:
             st.info("Selecione ao menos uma coluna categórica.")
@@ -1187,7 +1188,6 @@ def eda_page():
                 fig = px.bar(vc, x=col, y="quantidade", title=f"Frequências - {col}")
                 st.plotly_chart(fig, use_container_width=True)
 
-    # Correlação
     with tabs[2]:
         if len(num_cols) < 2:
             st.info("São necessárias pelo menos duas colunas numéricas para correlação.")
@@ -1201,7 +1201,6 @@ def eda_page():
             except Exception as e:
                 st.warning(f"Não foi possível calcular correlação: {e}")
 
-    # Insights com IA
     with tabs[3]:
         if not enable_ai:
             st.info("Habilite 'Gerar insights com IA' nos parâmetros para produzir um resumo automatizado.")
