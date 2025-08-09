@@ -256,7 +256,7 @@ LIMIT 1000
     try:
         df_zero = sql_query(f"SELECT * FROM ({query_state['text']}) LIMIT 0")
         cols = list(df_zero.columns)
-        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None)
+        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None, help="Coluna que contém o texto de onde as entidades serão extraídas.")
     except Exception as e:
         st.error(f"Não foi possível inferir as colunas: {e}")
         return
@@ -268,20 +268,20 @@ LIMIT 1000
             'person','organization','location','date','time','datetime','email','phone',
             'url','money','quantity','event','product','title','nationality','language'
         ]
-        selected = st.multiselect("Tipos de entidade", options=curated, default=['person','organization','location'])
+        selected = st.multiselect("Tipos de entidade", options=curated, default=['person','organization','location'], help="Tipos padrão de entidades para procurar.")
         extra = st_tags(label='Tipos personalizados:', text='Pressione ENTER para adicionar', value=[])
         entity_types = [t for t in selected] + [t.strip() for t in extra if t and t.strip()]
     with c2:
-        limit = st.number_input("Limite de linhas", min_value=50, max_value=20000, value=1000, step=50)
+        limit = st.number_input("Limite de linhas", min_value=50, max_value=20000, value=1000, step=50, help="Quantidade de linhas da sua consulta a processar.")
 
     with st.expander("Avançado"):
         col_a, col_b = st.columns(2)
         with col_a:
-            top_n = st.number_input("Top N (agregados)", min_value=5, max_value=100, value=30, step=5)
-            normalize_case = st.toggle("Normalizar caixa (lowercase)", value=True)
+            top_n = st.number_input("Top N (agregados)", min_value=5, max_value=100, value=30, step=5, help="Quantidade máxima de entidades exibidas nos rankings.")
+            normalize_case = st.toggle("Normalizar caixa (lowercase)", value=True, help="Converte as entidades para minúsculas para facilitar a agregação.")
         with col_b:
-            drop_numeric = st.toggle("Remover números puros", value=True)
-            regex_filter = st.text_input("Regex filtro de valor (opcional)", value="")
+            drop_numeric = st.toggle("Remover números puros", value=True, help="Remove entidades que são apenas números.")
+            regex_filter = st.text_input("Regex filtro de valor (opcional)", value="", help="Filtra entidades pelo padrão informado (expressão regular).")
 
     run = st.button("Extrair entidades", type="primary")
     if not run:
@@ -359,9 +359,9 @@ LIMIT 1000
         else:
             f1, f2 = st.columns([1,2])
             with f1:
-                type_filter = st.multiselect("Filtrar tipos", options=sorted(df_long['tipo'].unique().tolist()), default=None)
+                type_filter = st.multiselect("Filtrar tipos", options=sorted(df_long['tipo'].unique().tolist()), default=None, help="Mostra apenas os tipos selecionados.")
             with f2:
-                search = st.text_input("Contém (texto)", value="")
+                search = st.text_input("Contém (texto)", value="", help="Mostra apenas entidades que contenham o texto informado.")
             df_show = df_long.copy()
             if type_filter:
                 df_show = df_show[df_show['tipo'].isin(type_filter)]
@@ -543,8 +543,8 @@ LIMIT 5000
     try:
         df_zero = sql_query(f"SELECT * FROM ({query_state['text']}) LIMIT 0")
         cols = list(df_zero.columns)
-        time_col = st.selectbox("Coluna de tempo", options=cols, index=0 if cols else None)
-        value_col = st.selectbox("Coluna alvo (valor)", options=[c for c in cols if c != time_col], index=0 if len(cols) > 1 else None)
+        time_col = st.selectbox("Coluna de tempo", options=cols, index=0 if cols else None, help="Coluna temporal, ordenada, usada como eixo X da série.")
+        value_col = st.selectbox("Coluna alvo (valor)", options=[c for c in cols if c != time_col], index=0 if len(cols) > 1 else None, help="Série numérica a ser prevista.")
     except Exception as e:
         st.error(f"Não foi possível inferir as colunas: {e}")
         return
@@ -552,17 +552,17 @@ LIMIT 5000
     st.subheader("Parâmetros")
     col_a, col_b, col_c = st.columns([1,1,1])
     with col_a:
-        horizon_mode = st.selectbox("Modo de horizonte", ["Relativo (N unidades)", "Absoluto (timestamp)"])
+        horizon_mode = st.selectbox("Modo de horizonte", ["Relativo (N unidades)", "Absoluto (timestamp)"], help="Escolha entre prever até uma data específica (Absoluto) ou por N períodos (Relativo).")
     with col_b:
-        frequency = st.selectbox("Frequência", ["D","W","M"], index=0, help="Periodicidade dos dados (modo relativo)")
+        frequency = st.selectbox("Frequência", ["D","W","M"], index=0, help="Periodicidade dos dados quando o horizonte é relativo: D=dia, W=semana, M=mês.")
     with col_c:
-        show_conf = st.toggle("Exibir intervalo de confiança", value=True)
+        show_conf = st.toggle("Exibir intervalo de confiança", value=True, help="Mostra a banda de incerteza da previsão, quando disponível.")
 
     if horizon_mode == "Relativo (N unidades)":
-        horizon = st.number_input("Horizonte (períodos)", min_value=1, max_value=365, value=30)
+        horizon = st.number_input("Horizonte (períodos)", min_value=1, max_value=365, value=30, help="Quantidade de períodos na frente para prever.")
         absolute_horizon_str = None
     else:
-        absolute_horizon_str = st.text_input("Horizon (timestamp)", value="", placeholder="YYYY-MM-DD HH:MM:SS")
+        absolute_horizon_str = st.text_input("Horizon (timestamp)", value="", placeholder="YYYY-MM-DD HH:MM:SS", help="Data/hora final da previsão no formato indicado.")
         horizon = None
 
     run = st.button("Executar previsão", type="primary")
@@ -757,28 +757,26 @@ LIMIT 5000
     try:
         df_zero = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 0")
         cols = list(df_zero.columns)
-        time_col = st.selectbox("Coluna de tempo", options=cols, index=0 if cols else None)
-        value_col = st.selectbox("Coluna de valor", options=[c for c in cols if c != time_col], index=0 if len(cols) > 1 else None)
+        time_col = st.selectbox("Coluna de tempo", options=cols, index=0 if cols else None, help="Coluna temporal usada para ordenação.")
+        value_col = st.selectbox("Coluna de valor", options=[c for c in cols if c != time_col], index=0 if len(cols) > 1 else None, help="Série numérica para detecção de anomalias.")
     except Exception as e:
         st.error(f"Não foi possível inferir colunas: {e}")
         return
 
-    st.subheader("Parâmetros")
-    c1, c2, c3 = st.columns([1,1,1])
-    with c1:
-        method = st.selectbox("Método", ["Z-score (resíduo MM)", "MAD (resíduo MM)"])
-    with c2:
-        window = st.number_input("Janela (MM)", min_value=3, max_value=365, value=20)
-    with c3:
-        z_thresh = st.number_input("Z/MAD limite", min_value=1.0, max_value=10.0, value=3.0)
-
-    with st.expander("Avançado"):
+    with st.expander("Avançado (parâmetros)"):
+        c1, c2, c3 = st.columns([1,1,1])
+        with c1:
+            method = st.selectbox("Método", ["Z-score (resíduo MM)", "MAD (resíduo MM)"], help="Critério de outlier com base no resíduo da média móvel.")
+        with c2:
+            window = st.number_input("Janela (MM)", min_value=3, max_value=365, value=20, help="Tamanho da janela da média móvel para suavizar a série.")
+        with c3:
+            z_thresh = st.number_input("Z/MAD limite", min_value=1.0, max_value=10.0, value=3.0, help="Limiar do escore para marcar anomalias.")
         cA, cB = st.columns([1,1])
         with cA:
-            limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100)
-            group_col = st.selectbox("Agrupar por (opcional)", options=["(nenhum)"] + [c for c in cols if c not in (time_col, value_col)])
+            limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100, help="Quantidade de linhas da consulta a processar.")
+            group_col = st.selectbox("Agrupar por (opcional)", options=["(nenhum)"] + [c for c in cols if c not in (time_col, value_col)], help="Detecta anomalias separadamente por grupo.")
         with cB:
-            group_to_plot = st.selectbox("Grupo para visualizar", options=["(auto)"])
+            group_to_plot = st.selectbox("Grupo para visualizar", options=["(auto)"] + ([""] if False else []), help="Grupo a destacar no gráfico quando há agrupamento.")
 
     run = st.button("Detectar anomalias", type="primary")
     if not run:
@@ -861,7 +859,7 @@ LIMIT 1000
     try:
         df_zero = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 0")
         cols = list(df_zero.columns)
-        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None)
+        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None, help="Coluna que contém os textos a analisar.")
     except Exception as e:
         st.error(f"Não foi possível inferir colunas: {e}")
         return
@@ -872,11 +870,11 @@ LIMIT 1000
         default_types = ['topic', 'key_phrase']
         types = st_tags(label='Tipos de extração (ex.: topic, key_phrase):', text='Pressione ENTER para adicionar', value=default_types)
     with c2:
-        limit = st.number_input("Limite de linhas", min_value=50, max_value=10000, value=1000, step=50)
+        limit = st.number_input("Limite de linhas", min_value=50, max_value=10000, value=1000, step=50, help="Quantidade de linhas da consulta a processar.")
 
     with st.expander("Avançado"):
-        top_n = st.number_input("Top N (agregados)", min_value=5, max_value=100, value=40, step=5)
-        regex_filter = st.text_input("Regex filtro (opcional)", value="")
+        top_n = st.number_input("Top N (agregados)", min_value=5, max_value=100, value=40, step=5, help="Quantidade máxima de termos no ranking.")
+        regex_filter = st.text_input("Regex filtro (opcional)", value="", help="Filtra termos pelo padrão informado (expressão regular).")
 
     run = st.button("Extrair tópicos", type="primary")
     if not run:
@@ -1083,22 +1081,22 @@ LIMIT 10000
     st.subheader("Parâmetros")
     c1, c2, c3 = st.columns([1,1,1])
     with c1:
-        k = st.number_input("Número de clusters (k)", min_value=2, max_value=20, value=5)
+        k = st.number_input("Número de clusters (k)", min_value=2, max_value=20, value=5, help="Quantidade de grupos a formar.")
     with c2:
-        limit = st.number_input("Limite de linhas", min_value=100, max_value=50000, value=5000, step=100)
+        limit = st.number_input("Limite de linhas", min_value=100, max_value=50000, value=5000, step=100, help="Quantidade de linhas da consulta a usar.")
     with c3:
-        scale = st.toggle("Padronizar (Z-score)", value=True)
+        scale = st.toggle("Padronizar (Z-score)", value=True, help="Padroniza variáveis para média 0 e desvio 1 antes do cluster.")
 
     with st.expander("Avançado"):
         sel_cols = []
         try:
             df_head = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 1")
             num_candidates = df_head.select_dtypes(include=['number']).columns.tolist()
-            sel_cols = st.multiselect("Selecionar colunas numéricas específicas", options=num_candidates, default=num_candidates)
+            sel_cols = st.multiselect("Selecionar colunas numéricas específicas", options=num_candidates, default=num_candidates, help="Escolha variáveis numéricas a considerar no cluster.")
         except Exception:
             pass
-        elbow = st.toggle("Calcular curva de cotovelo (inércia)", value=False)
-        elbow_range = st.slider("Faixa k (elbow)", min_value=2, max_value=15, value=(2, 8))
+        elbow = st.toggle("Calcular curva de cotovelo (inércia)", value=False, help="Calcula inércia por k para ajudar a escolher k.")
+        elbow_range = st.slider("Faixa k (elbow)", min_value=2, max_value=15, value=(2, 8), help="Intervalo de k para a curva de cotovelo.")
 
     run = st.button("Executar clusterização", type="primary")
     if not run:
@@ -1206,11 +1204,11 @@ def eda_page():
     st.subheader("Parâmetros de análise")
     p1, p2, p3 = st.columns([1,1,1])
     with p1:
-        limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100, key='eda_limit')
+        limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100, key='eda_limit', help="Quantidade de linhas a amostrar para análise.")
     with p2:
-        enable_ai = st.toggle("Gerar insights com IA", value=False, key='eda_ai')
+        enable_ai = st.toggle("Gerar insights com IA", value=False, key='eda_ai', help="Gera um resumo automático com base em estatísticas e amostras.")
     with p3:
-        bins = st.slider("Bins (histogramas)", min_value=10, max_value=100, value=30, key='eda_bins')
+        bins = st.slider("Bins (histogramas)", min_value=10, max_value=100, value=30, key='eda_bins', help="Número de caixas para os histogramas.")
 
     if st.button("Executar análise", type="primary"):
         st.session_state._eda_run_token = True
@@ -1259,10 +1257,10 @@ def eda_page():
     c1, c2 = st.columns(2)
     with c1:
         st.caption("Numéricas")
-        num_cols = st.multiselect("Colunas numéricas", options=df.columns.tolist(), default=inferred_num, key='eda_num_cols', label_visibility='collapsed')
+        num_cols = st.multiselect("Colunas numéricas", options=df.columns.tolist(), default=inferred_num, key='eda_num_cols', label_visibility='collapsed', help="Variáveis numéricas a usar nos gráficos e correlação.")
     with c2:
         st.caption("Categóricas")
-        cat_cols = st.multiselect("Colunas categóricas", options=df.columns.tolist(), default=inferred_cat, key='eda_cat_cols', label_visibility='collapsed')
+        cat_cols = st.multiselect("Colunas categóricas", options=df.columns.tolist(), default=inferred_cat, key='eda_cat_cols', label_visibility='collapsed', help="Variáveis categóricas para frequências.")
 
     # Abas de análise
     tabs = st.tabs(["Numéricas", "Categóricas", "Correlação", "Insights (IA)"])
@@ -1292,7 +1290,7 @@ def eda_page():
             st.info("Selecione ao menos uma coluna categórica.")
         else:
             st.markdown("#### Frequências")
-            top_k = st.number_input("Top K por coluna", min_value=5, max_value=50, value=20, key='eda_topk')
+            top_k = st.number_input("Top K por coluna", min_value=5, max_value=50, value=20, key='eda_topk', help="Quantidade máxima de categorias para exibir por coluna.")
             for col in cat_cols[: min(6, len(cat_cols))]:
                 vc = df[col].astype(str).value_counts().reset_index().head(int(top_k))
                 vc.columns = [col, "quantidade"]
