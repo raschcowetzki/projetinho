@@ -12,6 +12,7 @@ from atlassian import Jira
 from io import BytesIO
 from streamlit_tags import st_tags
 import plotly.express as px
+import plotly.io as pio
 
 w = WorkspaceClient()
 server_hostname = os.getenv("DATABRICKS_HOST")
@@ -78,6 +79,12 @@ def _download_button(df: pd.DataFrame, label: str, filename: str):
         return
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(label=label, data=csv, file_name=filename, mime='text/csv')
+
+def _fig_to_png_bytes(fig) -> bytes | None:
+    try:
+        return pio.to_image(fig, format='png', scale=2)
+    except Exception:
+        return None
 
 @st.cache_data(show_spinner=False, ttl=300)
 def _cached_sql_result(query: str) -> pd.DataFrame:
@@ -1156,6 +1163,7 @@ def eda_page():
     # Collect figures and tables for PDF export
     report_images = []  # list of (title, png_bytes)
     report_text_blocks = []  # list of (title, text)
+    export_failed = False
 
     # Abas de análise
     tabs = st.tabs(["Numéricas", "Categóricas", "Correlação", "Insights (IA)"])
@@ -1177,12 +1185,11 @@ def eda_page():
                 try:
                     fig = px.histogram(df, x=col, nbins=st.session_state['eda_bins'], title=f"Histograma - {col}")
                     st.plotly_chart(fig, use_container_width=True)
-                    # Save image for report
-                    try:
-                        png_bytes = fig.to_image(format="png")
+                    png_bytes = _fig_to_png_bytes(fig)
+                    if png_bytes:
                         report_images.append((f"Histograma - {col}", png_bytes))
-                    except Exception:
-                        pass
+                    else:
+                        export_failed = True
                 except Exception:
                     continue
 
@@ -1197,11 +1204,11 @@ def eda_page():
                 vc.columns = [col, "quantidade"]
                 fig = px.bar(vc, x=col, y="quantidade", title=f"Frequências - {col}")
                 st.plotly_chart(fig, use_container_width=True)
-                try:
-                    png_bytes = fig.to_image(format="png")
+                png_bytes = _fig_to_png_bytes(fig)
+                if png_bytes:
                     report_images.append((f"Frequências - {col}", png_bytes))
-                except Exception:
-                    pass
+                else:
+                    export_failed = True
 
     with tabs[2]:
         if len(num_cols) < 2:
@@ -1213,11 +1220,11 @@ def eda_page():
                 fig = px.imshow(corr, text_auto=True, color_continuous_scale="RdBu_r", origin="lower")
                 st.plotly_chart(fig, use_container_width=True)
                 _download_button(corr.reset_index().rename(columns={"index":"coluna"}), "Baixar correlação (CSV)", "correlacao.csv")
-                try:
-                    png_bytes = fig.to_image(format="png")
+                png_bytes = _fig_to_png_bytes(fig)
+                if png_bytes:
                     report_images.append(("Matriz de correlação (Pearson)", png_bytes))
-                except Exception:
-                    pass
+                else:
+                    export_failed = True
             except Exception as e:
                 st.warning(f"Não foi possível calcular correlação: {e}")
 
@@ -1318,6 +1325,9 @@ def eda_page():
         pdf_bytes = buf.getvalue()
         buf.close()
         return pdf_bytes
+
+    if export_failed:
+        st.warning("Exportação de gráficos para PDF falhou. Instale 'kaleido' no ambiente do app/cluster para habilitar a exportação de imagens Plotly.")
 
     if st.button("Baixar PDF do relatório"):
         with st.spinner("Gerando PDF..."):
