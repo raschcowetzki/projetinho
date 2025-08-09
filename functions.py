@@ -584,8 +584,92 @@ LIMIT 5000
     if not run:
         return
 
-    # Consultar histórico e calcular horizonte como antes
-    # ... existing code until results ...
+    # Consultar histórico e calcular horizonte e executar previsão
+    with st.spinner("Consultando dados históricos..."):
+        df_hist = sql_query(f"SELECT {time_col} AS ds, {value_col} AS y FROM ({query_state['text']}) ORDER BY {time_col}")
+    if df_hist.empty:
+        st.warning("A consulta não retornou dados.")
+        return
+
+    try:
+        df_hist['ds'] = pd.to_datetime(df_hist['ds'])
+        last_date = df_hist['ds'].max()
+        if absolute_horizon_str:
+            horizon_str = absolute_horizon_str
+        else:
+            if frequency == 'D':
+                horizon_end = last_date + pd.Timedelta(days=int(horizon))
+            elif frequency == 'W':
+                horizon_end = last_date + pd.Timedelta(weeks=int(horizon))
+            else:
+                horizon_end = last_date + pd.DateOffset(months=int(horizon))
+            horizon_str = horizon_end.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception as e:
+        st.error(f"Falha ao calcular o horizonte da previsão: {e}")
+        return
+
+    with st.spinner("Gerando previsão com ai_forecast..."):
+        base_sql = f"SELECT {time_col} AS ds, {value_col} AS y FROM ({query_state['text']})"
+        forecast_sql = (
+            f"SELECT * FROM ai_forecast("
+            f"TABLE({base_sql}), time_col => 'ds', value_col => 'y', horizon => '{horizon_str}'"
+            f")"
+        )
+        try:
+            df_fc = sql_query(forecast_sql)
+        except Exception as e:
+            st.error(f"Falha ao executar ai_forecast: {e}")
+            return
+
+    if df_fc.empty:
+        st.warning("A função ai_forecast não retornou dados.")
+        return
+
+    col_map = {
+        'ds': None,
+        'yhat': None,
+        'yhat_lower': None,
+        'yhat_upper': None
+    }
+    candidates = {
+        'ds': ['ds', 'date', 'timestamp', time_col],
+        'yhat': ['y_forecast', 'yhat', 'forecast', 'prediction'],
+        'yhat_lower': ['y_lower', 'yhat_lower', 'lower_bound', 'lo'],
+        'yhat_upper': ['y_upper', 'yhat_upper', 'upper_bound', 'hi']
+    }
+    for key, names in candidates.items():
+        for n in names:
+            if n in df_fc.columns:
+                col_map[key] = n
+                break
+
+    if not col_map['ds'] or not col_map['yhat']:
+        st.error("Não foi possível identificar as colunas de data e previsão retornadas por ai_forecast.")
+        st.write("Colunas retornadas:", list(df_fc.columns))
+        return
+
+    try:
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=pd.to_datetime(df_hist['ds']), y=pd.to_numeric(df_hist['y'], errors='coerce'), name='Histórico', mode='lines', line=dict(color='#2a9d8f')))
+        if show_conf and col_map['yhat_lower'] and col_map['yhat_upper']:
+            fig.add_traces([
+                go.Scatter(
+                    x=pd.to_datetime(df_fc[col_map['ds']]),
+                    y=pd.to_numeric(df_fc[col_map['yhat_upper']], errors='coerce'),
+                    mode='lines', line=dict(width=0), name='Limite Superior', showlegend=False
+                ),
+                go.Scatter(
+                    x=pd.to_datetime(df_fc[col_map['ds']]),
+                    y=pd.to_numeric(df_fc[col_map['yhat_lower']], errors='coerce'),
+                    mode='lines', line=dict(width=0), name='Limite Inferior', fill='tonexty', fillcolor='rgba(63,161,16,0.2)', showlegend=False
+                )
+            ])
+        fig.add_trace(go.Scatter(x=pd.to_datetime(df_fc[col_map['ds']]), y=pd.to_numeric(df_fc[col_map['yhat']], errors='coerce'), name='Projeção', mode='lines', line=dict(color='#3FA110')))
+        fig.update_layout(title='Histórico e Projeção (ai_forecast)', xaxis_title='Tempo', yaxis_title=value_col)
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Falha ao montar o gráfico: {e}")
 
     st.subheader("Resultados")
     cols_show = [c for c in [col_map['ds'], col_map['yhat_lower'], col_map['yhat'], col_map['yhat_upper']] if c]
