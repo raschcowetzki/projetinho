@@ -79,6 +79,10 @@ def _download_button(df: pd.DataFrame, label: str, filename: str):
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(label=label, data=csv, file_name=filename, mime='text/csv')
 
+@st.cache_data(show_spinner=False, ttl=300)
+def _cached_sql_result(query: str) -> pd.DataFrame:
+    return sql_query(query)
+
 def export(model_query, type_export):
     pass
             
@@ -1088,20 +1092,24 @@ def eda_page():
         st.info("Escreva sua consulta e clique em Run.")
         return
 
-    st.subheader("Parâmetros")
-    p1, p2 = st.columns([1,1])
+    st.subheader("Parâmetros de análise")
+    p1, p2, p3 = st.columns([1,1,1])
     with p1:
-        limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100)
+        limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100, key='eda_limit')
     with p2:
-        enable_ai = st.toggle("Gerar insights com IA", value=False)
+        enable_ai = st.toggle("Gerar insights com IA", value=False, key='eda_ai')
+    with p3:
+        bins = st.slider("Bins (histogramas)", min_value=10, max_value=100, value=30, key='eda_bins')
 
-    run = st.button("Executar análise", type="primary")
-    if not run:
-        return
+    if st.button("Executar análise", type="primary"):
+        st.session_state._eda_run_token = True
+
+    if not st.session_state.get('_eda_run_token'):
+        st.stop()
 
     with st.spinner("Executando consulta..."):
         try:
-            df = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT {int(limit)}")
+            df = _cached_sql_result(f"SELECT * FROM ({qstate['text']}) LIMIT {int(limit)}")
         except Exception as e:
             st.error(f"Erro ao executar consulta: {e}")
             return
@@ -1109,18 +1117,26 @@ def eda_page():
         st.warning("Sem dados retornados.")
         return
 
-    # Tipos e métricas gerais
+    # Identificação de tipos e seleção de papéis (fora das abas)
+    st.subheader("Seleção de colunas")
+    inferred_num = df.select_dtypes(include=['number']).columns.tolist()
+    inferred_cat = df.select_dtypes(include=['object']).columns.tolist()
+    c1, c2 = st.columns(2)
+    with c1:
+        num_cols = st.multiselect("Colunas numéricas", options=df.columns.tolist(), default=inferred_num, key='eda_num_cols')
+    with c2:
+        cat_cols = st.multiselect("Colunas categóricas", options=df.columns.tolist(), default=inferred_cat, key='eda_cat_cols')
+
+    # Visão geral
     st.subheader("Visão Geral")
     n_rows, n_cols = df.shape
     dtypes = df.dtypes.astype(str)
-    num_cols = df.select_dtypes(include=['number']).columns.tolist()
-    cat_cols = df.select_dtypes(include=['object']).columns.tolist()
     null_counts = df.isna().sum()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Linhas", f"{n_rows}")
-    c2.metric("Colunas", f"{n_cols}")
-    c3.metric("Numéricas", f"{len(num_cols)}")
-    c4.metric("Categóricas", f"{len(cat_cols)}")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Linhas", f"{n_rows}")
+    m2.metric("Colunas", f"{n_cols}")
+    m3.metric("Numéricas", f"{len(num_cols)}")
+    m4.metric("Categóricas", f"{len(cat_cols)}")
 
     with st.expander("Tipos de dados e nulos"):
         st.write("Tipos de dados")
@@ -1132,24 +1148,26 @@ def eda_page():
     st.dataframe(df.head(200), use_container_width=True, hide_index=True)
     _download_button(df, "Baixar amostra (CSV)", "amostra.csv")
 
+    # Abas de análise (não redefinem seleção de colunas)
     tabs = st.tabs(["Numéricas", "Categóricas", "Correlação", "Insights (IA)"])
 
     # Numéricas
     with tabs[0]:
         if not num_cols:
-            st.info("Não há colunas numéricas.")
+            st.info("Selecione ao menos uma coluna numérica.")
         else:
             st.markdown("#### Estatísticas descritivas")
-            desc = df[num_cols].describe().T.reset_index().rename(columns={"index":"coluna"})
-            st.dataframe(desc, use_container_width=True, hide_index=True)
-            _download_button(desc, "Baixar estatísticas (CSV)", "estatisticas.csv")
+            try:
+                desc = df[num_cols].describe().T.reset_index().rename(columns={"index":"coluna"})
+                st.dataframe(desc, use_container_width=True, hide_index=True)
+                _download_button(desc, "Baixar estatísticas (CSV)", "estatisticas.csv")
+            except Exception:
+                st.warning("Não foi possível calcular estatísticas descritivas.")
 
             st.markdown("#### Distribuições")
-            sel_num = st.multiselect("Selecione colunas numéricas", options=num_cols, default=num_cols[: min(4, len(num_cols))])
-            bins = st.slider("Bins", min_value=10, max_value=100, value=30)
-            for col in sel_num:
+            for col in num_cols[: min(6, len(num_cols))]:
                 try:
-                    fig = px.histogram(df, x=col, nbins=bins, title=f"Histograma - {col}")
+                    fig = px.histogram(df, x=col, nbins=st.session_state['eda_bins'], title=f"Histograma - {col}")
                     st.plotly_chart(fig, use_container_width=True)
                 except Exception:
                     continue
@@ -1157,12 +1175,11 @@ def eda_page():
     # Categóricas
     with tabs[1]:
         if not cat_cols:
-            st.info("Não há colunas categóricas (object).")
+            st.info("Selecione ao menos uma coluna categórica.")
         else:
             st.markdown("#### Frequências")
-            sel_cat = st.multiselect("Selecione colunas categóricas", options=cat_cols, default=cat_cols[: min(3, len(cat_cols))])
-            top_k = st.number_input("Top K por coluna", min_value=5, max_value=50, value=20)
-            for col in sel_cat:
+            top_k = st.number_input("Top K por coluna", min_value=5, max_value=50, value=20, key='eda_topk')
+            for col in cat_cols[: min(6, len(cat_cols))]:
                 vc = df[col].astype(str).value_counts().reset_index().head(int(top_k))
                 vc.columns = [col, "quantidade"]
                 fig = px.bar(vc, x=col, y="quantidade", title=f"Frequências - {col}")
@@ -1174,14 +1191,13 @@ def eda_page():
             st.info("São necessárias pelo menos duas colunas numéricas para correlação.")
         else:
             st.markdown("#### Matriz de correlação (Pearson)")
-            corr = df[num_cols].corr(numeric_only=True)
             try:
+                corr = df[num_cols].corr(numeric_only=True)
                 fig = px.imshow(corr, text_auto=True, color_continuous_scale="RdBu_r", origin="lower")
-            except Exception:
-                import plotly.graph_objects as go
-                fig = go.Figure(data=go.Heatmap(z=corr.values, x=corr.columns, y=corr.columns, colorscale='RdBu'))
-            st.plotly_chart(fig, use_container_width=True)
-            _download_button(corr.reset_index().rename(columns={"index":"coluna"}), "Baixar correlação (CSV)", "correlacao.csv")
+                st.plotly_chart(fig, use_container_width=True)
+                _download_button(corr.reset_index().rename(columns={"index":"coluna"}), "Baixar correlação (CSV)", "correlacao.csv")
+            except Exception as e:
+                st.warning(f"Não foi possível calcular correlação: {e}")
 
     # Insights com IA
     with tabs[3]:
@@ -1189,7 +1205,6 @@ def eda_page():
             st.info("Habilite 'Gerar insights com IA' nos parâmetros para produzir um resumo automatizado.")
         else:
             st.markdown("#### Insights gerados por IA")
-            # Construir um prompt compacto com colunas e estatísticas resumidas
             prompt_lines = []
             prompt_lines.append("Você é um analista de dados. Gere insights concisos e acionáveis sobre o conjunto de dados a seguir.")
             prompt_lines.append(f"- Linhas: {n_rows}; Colunas: {n_cols}")
