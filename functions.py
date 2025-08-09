@@ -221,8 +221,8 @@ def analyze_sentiment():
             st.rerun()
 
 def extract_entities():
-    st.title("Extração de Entidade")
-    st.caption("Forneça uma consulta que retorne uma coluna de texto e escolha os tipos de entidades a extrair.")
+    st.title("Extração de Entidades")
+    st.caption("Extraia e analise entidades de textos usando ai_extract. Forneça uma consulta que retorne uma coluna de texto e selecione os tipos de entidades.")
 
     # Editor de consulta
     query_state = code_editor(
@@ -237,7 +237,7 @@ def extract_entities():
         st.info("Escreva sua consulta acima e clique em Run para habilitar os parâmetros.")
         return
 
-    # Inferir colunas e selecionar a coluna de texto
+    # Seleção de coluna de texto
     try:
         df_zero = sql_query(f"SELECT * FROM ({query_state['text']}) LIMIT 0")
         cols = list(df_zero.columns)
@@ -248,45 +248,42 @@ def extract_entities():
 
     # Parâmetros
     st.subheader("Parâmetros")
-    p1, p2, p3 = st.columns([2,1,1])
-    with p1:
-        entity_types = st_tags(
-            label='Tipos de entidade (ex.: person, organization, location, date, email, phone, url, money):',
-            text='Pressione ENTER para adicionar mais',
-            value=['person','organization','location']
-        )
-    with p2:
-        limit = st.number_input("Limite de linhas", min_value=10, max_value=10000, value=1000, step=10)
-    with p3:
+    c1, c2, c3 = st.columns([2,1,1])
+    with c1:
+        # Lista curada de tipos comuns suportados por ai_extract
+        curated = [
+            'person','organization','location','date','time','datetime','email','phone',
+            'url','money','quantity','event','product','title','nationality','language'
+        ]
+        selected = st.multiselect("Tipos de entidade", options=curated, default=['person','organization','location'])
+        extra = st_tags(label='Tipos personalizados:', text='Pressione ENTER para adicionar', value=[])
+        entity_types = [t for t in selected] + [t.strip() for t in extra if t and t.strip()]
+    with c2:
+        limit = st.number_input("Limite de linhas", min_value=50, max_value=20000, value=1000, step=50)
         top_n = st.number_input("Top N (agregados)", min_value=5, max_value=100, value=30, step=5)
+    with c3:
+        normalize_case = st.toggle("Normalizar caixa (lowercase)", value=True)
+        drop_numeric = st.toggle("Remover números puros", value=True)
 
-    run = st.button("Executar extração", type="primary")
+    run = st.button("Extrair entidades", type="primary")
     if not run:
         return
 
-    # Executar extração
-    types = [t.strip() for t in entity_types if t and t.strip()]
-    if not types:
+    if not entity_types:
         st.warning("Informe ao menos um tipo de entidade.")
         return
 
-    types_str = "'" + "','".join(types) + "'"
-    with st.spinner("Extraindo entidades no warehouse..."):
+    # Executa ai_extract
+    types_str = "'" + "','".join(entity_types) + "'"
+    with st.spinner("Executando ai_extract no warehouse..."):
         q = f"SELECT {text_col} AS texto, ai_extract({text_col}, ARRAY({types_str})) AS entidades FROM ({query_state['text']}) LIMIT {int(limit)}"
         try:
             df_raw = sql_query(q)
         except Exception as e:
-            st.error(f"Falha ao executar extração: {e}")
+            st.error(f"Falha ao executar ai_extract: {e}")
             return
 
-    st.subheader("Resultados")
-    tab_raw, tab_long, tab_aggs = st.tabs(["Tabela (bruta)", "Entidades (normalizadas)", "Agregados"]) 
-
-    with tab_raw:
-        st.dataframe(df_raw, use_container_width=True, hide_index=True)
-        _download_button(df_raw, "Baixar resultados (CSV)", "entidades_bruto.csv")
-
-    # Normalização das entidades
+    # Normalização de resultados em formato long
     def _flatten_entities(df: pd.DataFrame) -> pd.DataFrame:
         rows = []
         for idx, row in df.iterrows():
@@ -302,36 +299,78 @@ def extract_entities():
                 for ent_type, ent_values in ents.items():
                     if isinstance(ent_values, list):
                         for v in ent_values:
-                            rows.append({"linha": idx, "tipo": ent_type, "valor": str(v)})
+                            rows.append({"linha": idx, "tipo": str(ent_type), "valor": '' if v is None else str(v)})
                     else:
-                        rows.append({"linha": idx, "tipo": ent_type, "valor": str(ent_values)})
-            elif isinstance(ents, list):
-                for v in ents:
-                    rows.append({"linha": idx, "tipo": "unknown", "valor": str(v)})
-            else:
-                rows.append({"linha": idx, "tipo": "unknown", "valor": str(ents)})
-        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["linha","tipo","valor"])
+                        rows.append({"linha": idx, "tipo": str(ent_type), "valor": '' if ent_values is None else str(ent_values)})
+        out = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["linha","tipo","valor"])
+        if not out.empty:
+            if normalize_case:
+                out['valor'] = out['valor'].str.lower()
+            if drop_numeric:
+                out = out[~out['valor'].str.fullmatch(r"\d+(?:[.,]\d+)?", na=False)]
+            out = out[out['valor'].str.len() > 0]
+        return out
 
     df_long = _flatten_entities(df_raw)
 
-    with tab_long:
+    # Métricas
+    st.subheader("Visão geral")
+    colm = st.columns(3)
+    total_rows = len(df_raw)
+    rows_with_entities = df_long['linha'].nunique() if not df_long.empty else 0
+    distinct_entities = df_long['valor'].nunique() if not df_long.empty else 0
+    colm[0].metric("Linhas avaliadas", f"{total_rows}")
+    colm[1].metric("Linhas com entidades", f"{rows_with_entities}")
+    colm[2].metric("Entidades distintas", f"{distinct_entities}")
+
+    # Abas de resultados
+    tab_overview, tab_entities, tab_aggs, tab_raw = st.tabs(["Resumo", "Entidades", "Agregados", "Bruto"]) 
+
+    with tab_overview:
         if df_long.empty:
             st.info("Nenhuma entidade foi detectada.")
         else:
-            st.dataframe(df_long, use_container_width=True, hide_index=True)
-            _download_button(df_long, "Baixar entidades (CSV)", "entidades_normalizadas.csv")
+            # Distribuição por tipo
+            by_type = df_long.groupby('tipo').size().reset_index(name='quantidade').sort_values('quantidade', ascending=False)
+            fig = px.bar(by_type, x='tipo', y='quantidade', title='Distribuição por tipo de entidade')
+            st.plotly_chart(fig, use_container_width=True)
+            # Top entidades globais
+            counts_global = df_long.groupby('valor').size().reset_index(name='quantidade').sort_values('quantidade', ascending=False)
+            fig2 = px.bar(counts_global.head(int(top_n)), x='valor', y='quantidade', title=f'Top {int(top_n)} entidades (todas)')
+            st.plotly_chart(fig2, use_container_width=True)
+
+    with tab_entities:
+        if df_long.empty:
+            st.info("Sem entidades para exibir.")
+        else:
+            # Filtros rápidos
+            f1, f2 = st.columns([1,2])
+            with f1:
+                type_filter = st.multiselect("Filtrar tipos", options=sorted(df_long['tipo'].unique().tolist()), default=None)
+            with f2:
+                search = st.text_input("Contém (texto)", value="")
+            df_show = df_long.copy()
+            if type_filter:
+                df_show = df_show[df_show['tipo'].isin(type_filter)]
+            if search:
+                df_show = df_show[df_show['valor'].str.contains(search, case=False, na=False)]
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
+            _download_button(df_show, "Baixar entidades (CSV)", "entidades_normalizado.csv")
 
     with tab_aggs:
         if df_long.empty:
             st.info("Sem dados para agregar.")
         else:
-            counts = df_long.groupby(["tipo", "valor"]).size().reset_index(name="quantidade")
-            top = counts.sort_values("quantidade", ascending=False).head(int(top_n))
-            fig = px.bar(top, x="valor", y="quantidade", color="tipo", title="Top entidades extraídas")
+            t = st.selectbox("Tipo para detalhar", options=sorted(df_long['tipo'].unique().tolist()))
+            subset = df_long[df_long['tipo'] == t]
+            counts = subset.groupby('valor').size().reset_index(name='quantidade').sort_values('quantidade', ascending=False)
+            fig = px.bar(counts.head(int(top_n)), x='valor', y='quantidade', title=f'Top {int(top_n)} entidades para {t}')
             st.plotly_chart(fig, use_container_width=True)
-            by_type = df_long.groupby("tipo").size().reset_index(name="quantidade")
-            fig2 = px.pie(by_type, names='tipo', values='quantidade', title='Distribuição por tipo')
-            st.plotly_chart(fig2, use_container_width=True)
+            _download_button(counts, "Baixar agregados (CSV)", f"agregados_{t}.csv")
+
+    with tab_raw:
+        st.dataframe(df_raw, use_container_width=True, hide_index=True)
+        _download_button(df_raw, "Baixar bruto (CSV)", "entidades_bruto.csv")
 
 # Geração de Texto (ai_gen)
 
