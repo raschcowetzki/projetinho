@@ -66,6 +66,7 @@ with st.sidebar:
             "Detecção de Anomalias",
             "Extração de Tópicos",
             "Clusterização",
+            "Análise de Dados (EDA)",
             "Genie Chat",
             "AutoML",
             "Sobre"
@@ -79,6 +80,7 @@ with st.sidebar:
             "activity",
             "list-ul",
             "diagram-3",
+            "bar-chart",
             "chat",
             "cpu",
             "info-circle"
@@ -107,6 +109,8 @@ elif st.session_state.selected == "Extração de Tópicos":
     topic_extraction_page()
 elif st.session_state.selected == "Clusterização":
     clustering_page()
+elif st.session_state.selected == "Análise de Dados (EDA)":
+    eda_page()
 elif st.session_state.selected == "Genie Chat":
     genie_chat()
 elif st.session_state.selected == "AutoML":

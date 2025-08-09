@@ -1075,6 +1075,149 @@ def clustering_page():
     except Exception:
         pass
 
+# ----------------------------
+# Análise Exploratória de Dados (EDA)
+# ----------------------------
+
+def eda_page():
+    st.title("Análise de Dados (EDA)")
+    st.caption("Explore seu conjunto de dados: amostra, estatísticas, distribuições, correlações e insights gerados por IA.")
+
+    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
+    if not qstate['text']:
+        st.info("Escreva sua consulta e clique em Run.")
+        return
+
+    st.subheader("Parâmetros")
+    p1, p2 = st.columns([1,1])
+    with p1:
+        limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100)
+    with p2:
+        enable_ai = st.toggle("Gerar insights com IA", value=False)
+
+    run = st.button("Executar análise", type="primary")
+    if not run:
+        return
+
+    with st.spinner("Executando consulta..."):
+        try:
+            df = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT {int(limit)}")
+        except Exception as e:
+            st.error(f"Erro ao executar consulta: {e}")
+            return
+    if df.empty:
+        st.warning("Sem dados retornados.")
+        return
+
+    # Tipos e métricas gerais
+    st.subheader("Visão Geral")
+    n_rows, n_cols = df.shape
+    dtypes = df.dtypes.astype(str)
+    num_cols = df.select_dtypes(include=['number']).columns.tolist()
+    cat_cols = df.select_dtypes(include=['object']).columns.tolist()
+    null_counts = df.isna().sum()
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Linhas", f"{n_rows}")
+    c2.metric("Colunas", f"{n_cols}")
+    c3.metric("Numéricas", f"{len(num_cols)}")
+    c4.metric("Categóricas", f"{len(cat_cols)}")
+
+    with st.expander("Tipos de dados e nulos"):
+        st.write("Tipos de dados")
+        st.dataframe(pd.DataFrame({"coluna": dtypes.index, "tipo": dtypes.values}), use_container_width=True, hide_index=True)
+        st.write("Nulos por coluna")
+        st.dataframe(pd.DataFrame({"coluna": null_counts.index, "nulos": null_counts.values}), use_container_width=True, hide_index=True)
+
+    st.subheader("Prévia dos dados")
+    st.dataframe(df.head(200), use_container_width=True, hide_index=True)
+    _download_button(df, "Baixar amostra (CSV)", "amostra.csv")
+
+    tabs = st.tabs(["Numéricas", "Categóricas", "Correlação", "Insights (IA)"])
+
+    # Numéricas
+    with tabs[0]:
+        if not num_cols:
+            st.info("Não há colunas numéricas.")
+        else:
+            st.markdown("#### Estatísticas descritivas")
+            desc = df[num_cols].describe().T.reset_index().rename(columns={"index":"coluna"})
+            st.dataframe(desc, use_container_width=True, hide_index=True)
+            _download_button(desc, "Baixar estatísticas (CSV)", "estatisticas.csv")
+
+            st.markdown("#### Distribuições")
+            sel_num = st.multiselect("Selecione colunas numéricas", options=num_cols, default=num_cols[: min(4, len(num_cols))])
+            bins = st.slider("Bins", min_value=10, max_value=100, value=30)
+            for col in sel_num:
+                try:
+                    fig = px.histogram(df, x=col, nbins=bins, title=f"Histograma - {col}")
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception:
+                    continue
+
+    # Categóricas
+    with tabs[1]:
+        if not cat_cols:
+            st.info("Não há colunas categóricas (object).")
+        else:
+            st.markdown("#### Frequências")
+            sel_cat = st.multiselect("Selecione colunas categóricas", options=cat_cols, default=cat_cols[: min(3, len(cat_cols))])
+            top_k = st.number_input("Top K por coluna", min_value=5, max_value=50, value=20)
+            for col in sel_cat:
+                vc = df[col].astype(str).value_counts().reset_index().head(int(top_k))
+                vc.columns = [col, "quantidade"]
+                fig = px.bar(vc, x=col, y="quantidade", title=f"Frequências - {col}")
+                st.plotly_chart(fig, use_container_width=True)
+
+    # Correlação
+    with tabs[2]:
+        if len(num_cols) < 2:
+            st.info("São necessárias pelo menos duas colunas numéricas para correlação.")
+        else:
+            st.markdown("#### Matriz de correlação (Pearson)")
+            corr = df[num_cols].corr(numeric_only=True)
+            try:
+                fig = px.imshow(corr, text_auto=True, color_continuous_scale="RdBu_r", origin="lower")
+            except Exception:
+                import plotly.graph_objects as go
+                fig = go.Figure(data=go.Heatmap(z=corr.values, x=corr.columns, y=corr.columns, colorscale='RdBu'))
+            st.plotly_chart(fig, use_container_width=True)
+            _download_button(corr.reset_index().rename(columns={"index":"coluna"}), "Baixar correlação (CSV)", "correlacao.csv")
+
+    # Insights com IA
+    with tabs[3]:
+        if not enable_ai:
+            st.info("Habilite 'Gerar insights com IA' nos parâmetros para produzir um resumo automatizado.")
+        else:
+            st.markdown("#### Insights gerados por IA")
+            # Construir um prompt compacto com colunas e estatísticas resumidas
+            prompt_lines = []
+            prompt_lines.append("Você é um analista de dados. Gere insights concisos e acionáveis sobre o conjunto de dados a seguir.")
+            prompt_lines.append(f"- Linhas: {n_rows}; Colunas: {n_cols}")
+            if num_cols:
+                prompt_lines.append(f"- Colunas numéricas: {', '.join(num_cols[:20])}{'...' if len(num_cols)>20 else ''}")
+                try:
+                    desc_small = df[num_cols].describe().T[['mean','std','min','max']].round(3)
+                    prompt_lines.append("- Estatísticas (amostra):")
+                    for cname, row in desc_small.head(8).iterrows():
+                        prompt_lines.append(f"  - {cname}: média={row['mean']}, desvio={row['std']}, min={row['min']}, max={row['max']}")
+                except Exception:
+                    pass
+            if cat_cols:
+                prompt_lines.append(f"- Colunas categóricas: {', '.join(cat_cols[:20])}{'...' if len(cat_cols)>20 else ''}")
+                for c in cat_cols[:3]:
+                    vc = df[c].astype(str).value_counts().head(5)
+                    top_str = ", ".join([f"{idx}({val})" for idx, val in vc.items()])
+                    prompt_lines.append(f"  - {c}: {top_str}")
+            prompt_lines.append("Responda com principais tendências, possíveis problemas de qualidade, outliers suspeitos, segmentos relevantes e hipóteses de negócio.")
+            prompt = "\n".join(prompt_lines).replace("'", "''")
+            try:
+                with st.spinner("Consultando modelo de IA..."):
+                    df_ai = sql_query(f"SELECT ai_gen('{prompt}') AS insights")
+                insight_text = df_ai.iloc[0]['insights'] if not df_ai.empty else ""
+                st.markdown(insight_text)
+            except Exception as e:
+                st.error(f"Falha ao gerar insights com IA: {e}")
+
 
 
 
