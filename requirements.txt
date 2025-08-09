@@ -10,3 +10,4 @@ sql_metadata==2.15.0
 atlassian-python-api==3.41.19
 streamlit-tags==1.2.7
 plotly==5.23.0
+kaleido==1.0.0
