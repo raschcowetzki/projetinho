@@ -1118,14 +1118,16 @@ def eda_page():
         return
 
     # Identificação de tipos e seleção de papéis (fora das abas)
-    st.subheader("Seleção de colunas")
+    st.caption("Seleção de colunas")
     inferred_num = df.select_dtypes(include=['number']).columns.tolist()
     inferred_cat = df.select_dtypes(include=['object']).columns.tolist()
     c1, c2 = st.columns(2)
     with c1:
-        num_cols = st.multiselect("Colunas numéricas", options=df.columns.tolist(), default=inferred_num, key='eda_num_cols')
+        st.caption("Numéricas")
+        num_cols = st.multiselect("Colunas numéricas", options=df.columns.tolist(), default=inferred_num, key='eda_num_cols', label_visibility='collapsed')
     with c2:
-        cat_cols = st.multiselect("Colunas categóricas", options=df.columns.tolist(), default=inferred_cat, key='eda_cat_cols')
+        st.caption("Categóricas")
+        cat_cols = st.multiselect("Colunas categóricas", options=df.columns.tolist(), default=inferred_cat, key='eda_cat_cols', label_visibility='collapsed')
 
     # Visão geral
     st.subheader("Visão Geral")
