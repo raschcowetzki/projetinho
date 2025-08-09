@@ -976,6 +976,99 @@ def similarity_page():
     st.dataframe(res, use_container_width=True, hide_index=True)
     _download_button(res, "Baixar pares (CSV)", "similares.csv")
 
+# ----------------------------
+# Clusterização automática (KMeans + PCA)
+# ----------------------------
+
+def clustering_page():
+    st.title("Clusterização")
+    st.caption("Agrupe dados automaticamente a partir de uma consulta SQL. Suporta colunas numéricas e visualização com PCA.")
+
+    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
+    if not qstate['text']:
+        st.info("Escreva sua consulta e clique em Run.")
+        return
+
+    st.subheader("Parâmetros")
+    c1, c2, c3 = st.columns([1,1,1])
+    with c1:
+        k = st.number_input("Número de clusters (k)", min_value=2, max_value=20, value=5)
+    with c2:
+        limit = st.number_input("Limite de linhas", min_value=100, max_value=50000, value=5000, step=100)
+    with c3:
+        scale = st.toggle("Padronizar (Z-score)", value=True)
+
+    run = st.button("Executar clusterização", type="primary")
+    if not run:
+        return
+
+    with st.spinner("Executando consulta..."):
+        try:
+            df = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT {int(limit)}")
+        except Exception as e:
+            st.error(f"Erro ao executar consulta: {e}")
+            return
+    if df.empty:
+        st.warning("Sem dados retornados.")
+        return
+
+    # Selecionar colunas numéricas
+    num_df = df.select_dtypes(include=['number']).copy()
+    if num_df.shape[1] < 2:
+        st.error("A consulta deve retornar ao menos duas colunas numéricas para clusterização.")
+        return
+
+    # Escalonamento opcional
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.cluster import KMeans
+    from sklearn.decomposition import PCA
+
+    X = num_df.fillna(num_df.mean(numeric_only=True))
+    if scale:
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X.values)
+    else:
+        X_scaled = X.values
+
+    # KMeans
+    try:
+        kmeans = KMeans(n_clusters=int(k), n_init='auto', random_state=42)
+        labels = kmeans.fit_predict(X_scaled)
+        centers = kmeans.cluster_centers_
+    except Exception as e:
+        st.error(f"Falha no KMeans: {e}")
+        return
+
+    # PCA para visualização 2D
+    try:
+        pca = PCA(n_components=2, random_state=42)
+        coords = pca.fit_transform(X_scaled)
+        vis = pd.DataFrame({
+            'pc1': coords[:,0],
+            'pc2': coords[:,1],
+            'cluster': labels.astype(int)
+        })
+        fig = px.scatter(vis, x='pc1', y='pc2', color='cluster', title='Clusters (PCA 2D)')
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.warning(f"PCA não pôde ser executado para visualização: {e}")
+
+    # Saídas
+    out = df.copy()
+    out['cluster'] = labels
+    st.subheader("Resultados")
+    st.dataframe(out, use_container_width=True, hide_index=True)
+    _download_button(out, "Baixar dados com cluster (CSV)", "clusters.csv")
+
+    st.subheader("Centroides (no espaço escalonado)")
+    try:
+        centers_df = pd.DataFrame(centers, columns=X.columns)
+        centers_df['cluster'] = range(int(k))
+        st.dataframe(centers_df, use_container_width=True, hide_index=True)
+        _download_button(centers_df, "Baixar centroides (CSV)", "centroides.csv")
+    except Exception:
+        pass
+
 
 
 

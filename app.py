@@ -62,15 +62,10 @@ with st.sidebar:
             "Análise de Sentimento",
             "Classificação",
             "Extração de Entidade",
-            "Geração de Texto",
-            "Tradução",
             "Sumarização",
-            "Correção de Gramática",
-            "Detecção de Idioma",
             "Detecção de Anomalias",
             "Extração de Tópicos",
-            "Mascaramento de PII",
-            "Similaridade/Dedup",
+            "Clusterização",
             "Genie Chat",
             "AutoML",
             "Sobre"
@@ -80,15 +75,10 @@ with st.sidebar:
             "emoji-smile",
             "tags",
             "search",
-            "chat-dots",
-            "translate",
             "journal-text",
-            "spellcheck",
-            "globe2",
-            "activity",          # Detecção de Anomalias
-            "list-ul",           # Extração de Tópicos
-            "shield-lock",       # PII
-            "collection",        # Similaridade
+            "activity",
+            "list-ul",
+            "diagram-3",
             "chat",
             "cpu",
             "info-circle"
@@ -109,24 +99,14 @@ elif st.session_state.selected == "Classificação":
     classify()
 elif st.session_state.selected == "Extração de Entidade":
     extract_entities()
-elif st.session_state.selected == "Geração de Texto":
-    gen_text()
-elif st.session_state.selected == "Tradução":
-    translate_text()
 elif st.session_state.selected == "Sumarização":
     summarize_text()
-elif st.session_state.selected == "Correção de Gramática":
-    fix_grammar_page()
-elif st.session_state.selected == "Detecção de Idioma":
-    detect_language_page()
 elif st.session_state.selected == "Detecção de Anomalias":
     anomaly_detection_page()
 elif st.session_state.selected == "Extração de Tópicos":
     topic_extraction_page()
-elif st.session_state.selected == "Mascaramento de PII":
-    pii_redaction_page()
-elif st.session_state.selected == "Similaridade/Dedup":
-    similarity_page()
+elif st.session_state.selected == "Clusterização":
+    clustering_page()
 elif st.session_state.selected == "Genie Chat":
     genie_chat()
 elif st.session_state.selected == "AutoML":
