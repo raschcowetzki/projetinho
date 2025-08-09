@@ -12,7 +12,6 @@ from atlassian import Jira
 from io import BytesIO
 from streamlit_tags import st_tags
 import plotly.express as px
-import plotly.io as pio
 
 w = WorkspaceClient()
 server_hostname = os.getenv("DATABRICKS_HOST")
@@ -1160,11 +1159,6 @@ def eda_page():
         st.caption("Categóricas")
         cat_cols = st.multiselect("Colunas categóricas", options=df.columns.tolist(), default=inferred_cat, key='eda_cat_cols', label_visibility='collapsed')
 
-    # Collect figures and tables for PDF export
-    report_images = []  # list of (title, png_bytes)
-    report_text_blocks = []  # list of (title, text)
-    export_failed = False
-
     # Abas de análise
     tabs = st.tabs(["Numéricas", "Categóricas", "Correlação", "Insights (IA)"])
 
@@ -1185,11 +1179,6 @@ def eda_page():
                 try:
                     fig = px.histogram(df, x=col, nbins=st.session_state['eda_bins'], title=f"Histograma - {col}")
                     st.plotly_chart(fig, use_container_width=True)
-                    png_bytes = _fig_to_png_bytes(fig)
-                    if png_bytes:
-                        report_images.append((f"Histograma - {col}", png_bytes))
-                    else:
-                        export_failed = True
                 except Exception:
                     continue
 
@@ -1204,11 +1193,6 @@ def eda_page():
                 vc.columns = [col, "quantidade"]
                 fig = px.bar(vc, x=col, y="quantidade", title=f"Frequências - {col}")
                 st.plotly_chart(fig, use_container_width=True)
-                png_bytes = _fig_to_png_bytes(fig)
-                if png_bytes:
-                    report_images.append((f"Frequências - {col}", png_bytes))
-                else:
-                    export_failed = True
 
     with tabs[2]:
         if len(num_cols) < 2:
@@ -1220,11 +1204,6 @@ def eda_page():
                 fig = px.imshow(corr, text_auto=True, color_continuous_scale="RdBu_r", origin="lower")
                 st.plotly_chart(fig, use_container_width=True)
                 _download_button(corr.reset_index().rename(columns={"index":"coluna"}), "Baixar correlação (CSV)", "correlacao.csv")
-                png_bytes = _fig_to_png_bytes(fig)
-                if png_bytes:
-                    report_images.append(("Matriz de correlação (Pearson)", png_bytes))
-                else:
-                    export_failed = True
             except Exception as e:
                 st.warning(f"Não foi possível calcular correlação: {e}")
 
@@ -1258,84 +1237,8 @@ def eda_page():
                     df_ai = sql_query(f"SELECT ai_gen('{prompt}') AS insights")
                 insight_text = df_ai.iloc[0]['insights'] if not df_ai.empty else ""
                 st.markdown(insight_text)
-                report_text_blocks.append(("Insights gerados por IA", insight_text))
             except Exception as e:
                 st.error(f"Falha ao gerar insights com IA: {e}")
-
-    # Botão para gerar PDF do relatório
-    def _build_pdf(images: list[tuple[str, bytes]], texts: list[tuple[str, str]]) -> bytes:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.units import cm
-        from reportlab.lib.utils import ImageReader
-        from io import BytesIO
-
-        buf = BytesIO()
-        c = canvas.Canvas(buf, pagesize=A4)
-        width, height = A4
-
-        # Capa
-        c.setFont("Helvetica-Bold", 18)
-        c.drawString(2*cm, height-2.5*cm, "Relatório de Análise de Dados (EDA)")
-        c.setFont("Helvetica", 10)
-        c.drawString(2*cm, height-3.2*cm, f"Linhas: {n_rows} | Colunas: {n_cols}")
-        c.drawString(2*cm, height-3.8*cm, f"Numéricas: {len(inferred_num)} | Categóricas: {len(inferred_cat)}")
-        c.showPage()
-
-        # Gráficos
-        for title, img_bytes in images:
-            c.setFont("Helvetica-Bold", 12)
-            c.drawString(2*cm, height-2*cm, title)
-            try:
-                img = ImageReader(BytesIO(img_bytes))
-                # Fit image
-                max_w = width - 4*cm
-                max_h = height - 4*cm
-                iw, ih = img.getSize()
-                scale = min(max_w/iw, max_h/ih)
-                w, h = iw*scale, ih*scale
-                c.drawImage(img, 2*cm, (height-3*cm - h), width=w, height=h, preserveAspectRatio=True, mask='auto')
-            except Exception:
-                c.setFont("Helvetica", 10)
-                c.drawString(2*cm, height-2.8*cm, "[Falha ao renderizar gráfico]")
-            c.showPage()
-
-        # Textos
-        for title, text in texts:
-            c.setFont("Helvetica-Bold", 12)
-            c.drawString(2*cm, height-2*cm, title)
-            c.setFont("Helvetica", 10)
-            y = height-3*cm
-            for line in text.split("\n"):
-                wrapped = []
-                while len(line) > 110:
-                    wrapped.append(line[:110])
-                    line = line[110:]
-                wrapped.append(line)
-                for wline in wrapped:
-                    if y < 2*cm:
-                        c.showPage()
-                        c.setFont("Helvetica", 10)
-                        y = height-2*cm
-                    c.drawString(2*cm, y, wline)
-                    y -= 0.5*cm
-            c.showPage()
-
-        c.save()
-        pdf_bytes = buf.getvalue()
-        buf.close()
-        return pdf_bytes
-
-    if export_failed:
-        st.warning("Exportação de gráficos para PDF falhou. Instale 'kaleido' no ambiente do app/cluster para habilitar a exportação de imagens Plotly.")
-
-    if st.button("Baixar PDF do relatório"):
-        with st.spinner("Gerando PDF..."):
-            try:
-                pdf = _build_pdf(report_images, report_text_blocks)
-                st.download_button("Download PDF", data=pdf, file_name="relatorio_eda.pdf", mime="application/pdf")
-            except Exception as e:
-                st.error(f"Falha ao gerar PDF: {e}")
 
 
 
