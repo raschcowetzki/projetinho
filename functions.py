@@ -1343,6 +1343,148 @@ def eda_page():
             except Exception as e:
                 st.error(f"Falha ao gerar insights com IA: {e}")
 
+def about_page():
+    st.title("Sobre o Mini Cientista")
+    st.caption("Guia detalhado, dicas e tutoriais para cada funcionalidade.")
+
+    st.markdown("### Visão Geral")
+    st.write(
+        """
+O Mini Cientista é um app Streamlit integrado ao Databricks, pensado para agilizar análises do dia a dia:
+- Exploração de dados (EDA)
+- Previsões (ai_forecast)
+- Análise de sentimento (ai_analyze_sentiment)
+- Classificação (ai_classify)
+- Extração de tópicos (ai_extract)
+- Detecção de anomalias
+- Clusterização (KMeans)
+- Chat com Genie e integração com AutoML
+        """
+    )
+
+    with st.expander("Projeção (ai_forecast)"):
+        st.markdown("#### O que faz?")
+        st.write("Gera previsões de uma série temporal a partir de uma coluna de tempo e uma coluna de valor.")
+        st.markdown("#### Como usar")
+        st.write("""
+1. Escreva um SQL que retorne colunas de tempo e valor. 
+2. Selecione as colunas no app. 
+3. Escolha o horizonte: 
+   - Relativo (N períodos, com D/W/M) 
+   - Absoluto (timestamp) 
+4. Opcionalmente exiba a banda de confiança.
+5. Execute e analise o gráfico e a tabela de resultados.
+        """)
+        st.markdown("#### Dicas")
+        st.write("""
+- Garanta que a coluna de tempo esteja ordenada. 
+- Use horizontes pequenos inicialmente para validar o comportamento. 
+- Se a banda não aparecer, a função pode não ter retornado limites superior/inferior.
+        """)
+
+    with st.expander("Análise de Sentimento (ai_analyze_sentiment)"):
+        st.markdown("#### O que faz?")
+        st.write("Classifica opiniões/textos como positivo, negativo, neutro, etc.")
+        st.markdown("#### Como usar")
+        st.write("""
+1. Escreva um SQL com uma coluna de texto. 
+2. Selecione a coluna e execute. 
+3. Veja a distribuição por sentimento e a tabela com resultados.
+        """)
+        st.markdown("#### Dicas")
+        st.write("Textos muito curtos ou ambíguos podem ser classificados como neutros.")
+
+    with st.expander("Classificação (ai_classify)"):
+        st.markdown("#### O que faz?")
+        st.write("Classifica textos em categorias definidas por você.")
+        st.markdown("#### Como usar")
+        st.write("""
+1. Escreva um SQL com uma coluna de texto. 
+2. Selecione a coluna e defina as categorias (labels). 
+3. Execute para obter a classificação e gráficos de distribuição.
+        """)
+        st.markdown("#### Dicas")
+        st.write("Escolha categorias claras, mutuamente exclusivas e semanticamente distintas.")
+
+    with st.expander("Extração de Tópicos (ai_extract)"):
+        st.markdown("#### O que faz?")
+        st.write("Extrai tópicos e frases-chave de textos.")
+        st.markdown("#### Como usar")
+        st.write("""
+1. Escreva um SQL com uma coluna de texto. 
+2. Selecione a coluna e os tipos (topic, key_phrase). 
+3. Opcionalmente ajuste Top N e filtros (regex).
+4. Execute e explore a tabela normalizada e os agregados.
+        """)
+        st.markdown("#### Dicas")
+        st.write("Refine o regex para focar em termos relevantes ao seu negócio.")
+
+    with st.expander("Detecção de Anomalias"):
+        st.markdown("#### O que faz?")
+        st.write("Encontra outliers numa série temporal, com base no resíduo de uma média móvel.")
+        st.markdown("#### Como usar")
+        st.write("""
+1. Escreva um SQL com colunas de tempo e valor (opcionalmente uma de grupo). 
+2. Em "Avançado (parâmetros)", defina o método (Z-score/MAD), a janela da MM e o limiar. 
+3. Opcionalmente agrupe por categoria para detectar e visualizar por grupo. 
+4. Execute para ver série, anomalias e agregados por grupo.
+        """)
+        st.markdown("#### Dicas")
+        st.write("""
+- Use janelas maiores para suavizar ruídos de curto prazo. 
+- Ajuste o limite (Z/MAD) para controlar sensibilidade. 
+- Com grupo, valide o grupo exibido no gráfico (auto seleciona o primeiro encontrado).
+        """)
+
+    with st.expander("Clusterização"):
+        st.markdown("#### O que faz?")
+        st.write("Agrupa observações em k clusters com KMeans e exibe uma projeção 2D por PCA.")
+        st.markdown("#### Como usar")
+        st.write("""
+1. Escreva um SQL que retorne colunas numéricas relevantes. 
+2. Ajuste k, limite e se deseja padronizar (recomendado). 
+3. Em "Avançado", selecione colunas específicas e/gere curva de cotovelo para sugerir k. 
+4. Execute para ver o scatter (PCA), centroides e dados com labels.
+        """)
+        st.markdown("#### Dicas")
+        st.write("""
+- Padronização ajuda quando variáveis têm escalas diferentes. 
+- Use a curva de cotovelo e o silhouette score como guias para k. 
+- Se seu dataset é majoritariamente categórico, considere antes uma transformação (one-hot/embeddings).
+        """)
+
+    with st.expander("EDA (Análise Exploratória)"):
+        st.markdown("#### O que faz?")
+        st.write("Oferece visão geral, estatísticas, distribuições, correlação e insights automáticos.")
+        st.markdown("#### Como usar")
+        st.write("""
+1. Escreva um SQL e execute a análise. 
+2. Revise a visão geral, amostra, selecione colunas e navegue pelas abas. 
+3. Ative "Gerar insights com IA" para um resumo textual com sugestões.
+        """)
+        st.markdown("#### Dicas")
+        st.write("Prefira amostras representativas (limite alto o suficiente) e selecione colunas relevantes para gráficos.")
+
+    with st.expander("Genie Chat"):
+        st.markdown("#### O que faz?")
+        st.write("Permite conversar com seus dados via um espaço do Genie.")
+        st.markdown("#### Como usar")
+        st.write("Informe a URL do espaço do Genie (ou configure via variável GENIE_SPACE_URL) e interaja no iframe.")
+
+    with st.expander("AutoML"):
+        st.markdown("#### O que faz?")
+        st.write("Facilita iniciar experimentos AutoML (classificação, regressão, forecast) quando disponível no ambiente Databricks.")
+        st.markdown("#### Como usar")
+        st.write("Forneça um SQL que gere o dataset, selecione o alvo (e tempo/frequência/horizonte para forecast) e inicie o AutoML. Em ambientes sem AutoML, uma mensagem informará indisponibilidade.")
+
+    st.markdown("### Boas práticas gerais")
+    st.write("""
+- Garanta permissões e Warehouse adequados (Pro/Serverless quando necessário). 
+- Valide amostras antes de rodar operações pesadas. 
+- Documente seus parâmetros (horizonte, filtros, k) junto dos resultados. 
+- Salve/exporte resultados em CSV (ou crie tabelas Delta) para reprodutibilidade.
+    """)
+
 
 
 

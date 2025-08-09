@@ -61,8 +61,6 @@ with st.sidebar:
             "Projeção",
             "Análise de Sentimento",
             "Classificação",
-            "Extração de Entidade",
-            "Sumarização",
             "Detecção de Anomalias",
             "Extração de Tópicos",
             "Clusterização",
@@ -75,8 +73,6 @@ with st.sidebar:
             "graph-up",
             "emoji-smile",
             "tags",
-            "search",
-            "journal-text",
             "activity",
             "list-ul",
             "diagram-3",
@@ -99,10 +95,6 @@ elif st.session_state.selected == "Análise de Sentimento":
     analyze_sentiment()
 elif st.session_state.selected == "Classificação":
     classify()
-elif st.session_state.selected == "Extração de Entidade":
-    extract_entities()
-elif st.session_state.selected == "Sumarização":
-    summarize_text()
 elif st.session_state.selected == "Detecção de Anomalias":
     anomaly_detection_page()
 elif st.session_state.selected == "Extração de Tópicos":
@@ -115,7 +107,7 @@ elif st.session_state.selected == "Genie Chat":
     genie_chat()
 elif st.session_state.selected == "AutoML":
     automl_page()
+elif st.session_state.selected == "Sobre":
+    about_page()
 else:
-    st.markdown("## 🚧 Página em construção... 🚧")
-    st.write("Este aplicativo foi desenvolvido pela Engenharia de Dados do Time de Associação e Contas para acelerar a criação e alteração de tabelas dentro da Camada Gold.")
-    st.write("Para mais informações sobre como utilizar o aplicativo e como criar ou alterar tabelas de forma eficiente, visite nossa [Wiki](https://wiki.sicredi.io/pages/viewpage.action?pageId=350389058) e [GIT](https://gitlab.sicredi.net/camada-gold/camada_gold_app/app_gold)")
+    about_page()
