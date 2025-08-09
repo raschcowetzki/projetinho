@@ -1375,11 +1375,13 @@ O Mini Cientista é um app Streamlit integrado ao Databricks, pensado para agili
 4. Opcionalmente exiba a banda de confiança.
 5. Execute e analise o gráfico e a tabela de resultados.
         """)
-        st.markdown("#### Dicas")
+        st.markdown("#### Fundamentos (intuitivo)")
         st.write("""
-- Garanta que a coluna de tempo esteja ordenada. 
-- Use horizontes pequenos inicialmente para validar o comportamento. 
-- Se a banda não aparecer, a função pode não ter retornado limites superior/inferior.
+- Série temporal: uma sequência de valores ao longo do tempo (por exemplo, vendas diárias). 
+- Horizonte: até quando queremos prever (ex.: próximos 30 dias). 
+- Intervalo de confiança: uma faixa que indica incerteza; a linha da previsão é o melhor palpite, e a banda mostra onde é razoável esperar que o valor fique. 
+- Sazonalidade e tendência: padrões repetitivos (semanal/mensal) e direção geral (subida/queda) que o modelo tenta capturar.
+- Boas práticas: garantir uma coluna temporal ordenada; usar horizontes modestos primeiro; monitorar a qualidade com backtests quando possível.
         """)
 
     with st.expander("Análise de Sentimento (ai_analyze_sentiment)"):
@@ -1391,8 +1393,11 @@ O Mini Cientista é um app Streamlit integrado ao Databricks, pensado para agili
 2. Selecione a coluna e execute. 
 3. Veja a distribuição por sentimento e a tabela com resultados.
         """)
-        st.markdown("#### Dicas")
-        st.write("Textos muito curtos ou ambíguos podem ser classificados como neutros.")
+        st.markdown("#### Fundamentos (intuitivo)")
+        st.write("""
+- Modelos de linguagem reconhecem padrões de palavras/frases associadas a emoções. 
+- Textos curtos, ambíguos ou irônicos podem ser difíceis; é normal haver alguma incerteza.
+        """)
 
     with st.expander("Classificação (ai_classify)"):
         st.markdown("#### O que faz?")
@@ -1403,8 +1408,11 @@ O Mini Cientista é um app Streamlit integrado ao Databricks, pensado para agili
 2. Selecione a coluna e defina as categorias (labels). 
 3. Execute para obter a classificação e gráficos de distribuição.
         """)
-        st.markdown("#### Dicas")
-        st.write("Escolha categorias claras, mutuamente exclusivas e semanticamente distintas.")
+        st.markdown("#### Fundamentos (intuitivo)")
+        st.write("""
+- Quanto mais claras e distintas forem as categorias, melhor o resultado. 
+- Evite categorias muito parecidas; se necessário, comece com poucas e refine.
+        """)
 
     with st.expander("Extração de Tópicos (ai_extract)"):
         st.markdown("#### O que faz?")
@@ -1416,8 +1424,12 @@ O Mini Cientista é um app Streamlit integrado ao Databricks, pensado para agili
 3. Opcionalmente ajuste Top N e filtros (regex).
 4. Execute e explore a tabela normalizada e os agregados.
         """)
-        st.markdown("#### Dicas")
-        st.write("Refine o regex para focar em termos relevantes ao seu negócio.")
+        st.markdown("#### Fundamentos (intuitivo)")
+        st.write("""
+- Tópicos: temas gerais presentes no texto (ex.: "atendimento", "entrega"). 
+- Frases‑chave: expressões relevantes mais específicas (ex.: "atraso na entrega"). 
+- O objetivo é resumir conteúdo para facilitar descobertas.
+        """)
 
     with st.expander("Detecção de Anomalias"):
         st.markdown("#### O que faz?")
@@ -1429,11 +1441,13 @@ O Mini Cientista é um app Streamlit integrado ao Databricks, pensado para agili
 3. Opcionalmente agrupe por categoria para detectar e visualizar por grupo. 
 4. Execute para ver série, anomalias e agregados por grupo.
         """)
-        st.markdown("#### Dicas")
+        st.markdown("#### Fundamentos (intuitivo)")
         st.write("""
-- Use janelas maiores para suavizar ruídos de curto prazo. 
-- Ajuste o limite (Z/MAD) para controlar sensibilidade. 
-- Com grupo, valide o grupo exibido no gráfico (auto seleciona o primeiro encontrado).
+- Média móvel (MM): média calculada em uma janela deslizante; ajuda a suavizar ruídos. 
+- Resíduo: diferença entre o valor e a média móvel (o quanto "foge" do esperado). 
+- Z‑score: resíduo dividido pelo desvio padrão na janela; marca anomalia quando excede um limite (ex.: 3). 
+- MAD (Median Absolute Deviation): mede a variabilidade via mediana (mais robusto a outliers). Score MAD ≈ |resíduo − mediana| / MAD. 
+- Agrupar por categoria: detecta anomalias separadamente por segmento (ex.: por loja/região), evitando que padrões diferentes se misturem.
         """)
 
     with st.expander("Clusterização"):
@@ -1446,11 +1460,14 @@ O Mini Cientista é um app Streamlit integrado ao Databricks, pensado para agili
 3. Em "Avançado", selecione colunas específicas e/gere curva de cotovelo para sugerir k. 
 4. Execute para ver o scatter (PCA), centroides e dados com labels.
         """)
-        st.markdown("#### Dicas")
+        st.markdown("#### Fundamentos (intuitivo)")
         st.write("""
-- Padronização ajuda quando variáveis têm escalas diferentes. 
-- Use a curva de cotovelo e o silhouette score como guias para k. 
-- Se seu dataset é majoritariamente categórico, considere antes uma transformação (one-hot/embeddings).
+- KMeans: algoritmo que posiciona k "centroides" (pontos médios) e atribui cada observação ao centro mais próximo; busca minimizar a soma das distâncias ao centro (inércia). 
+- Escolha de k: 
+  - Elbow (cotovelo): observe a curva da inércia por k; o ponto onde a queda "diminui" costuma ser um bom k. 
+  - Silhouette: mede quão bem separadas estão as classes (varia de -1 a 1; mais perto de 1 é melhor). 
+- PCA (Análise de Componentes Principais): transforma as variáveis para eixos que capturam a maior variação; útil para visualizar em 2D sem perder muita informação. 
+- Escalonamento (padronização): importante para que variáveis em escalas diferentes não dominem a distância.
         """)
 
     with st.expander("EDA (Análise Exploratória)"):
@@ -1462,8 +1479,14 @@ O Mini Cientista é um app Streamlit integrado ao Databricks, pensado para agili
 2. Revise a visão geral, amostra, selecione colunas e navegue pelas abas. 
 3. Ative "Gerar insights com IA" para um resumo textual com sugestões.
         """)
-        st.markdown("#### Dicas")
-        st.write("Prefira amostras representativas (limite alto o suficiente) e selecione colunas relevantes para gráficos.")
+        st.markdown("#### Fundamentos (intuitivo)")
+        st.write("""
+- Tipos e nulos: entender que tipo de dado há e onde há ausências. 
+- Estatísticas: média, desvio, mínimos/máximos ajudam a ter noção de escala e variação. 
+- Histogramas: mostram a distribuição; ajuste o número de "bins" para ver mais/menos detalhe. 
+- Frequências (categóricas): top categorias dão uma fotografia rápida do que é mais comum. 
+- Correlação (Pearson): indica se duas variáveis variam juntas (positivo) ou em sentidos opostos (negativo); não implica causalidade.
+        """)
 
     with st.expander("Genie Chat"):
         st.markdown("#### O que faz?")
@@ -1476,6 +1499,20 @@ O Mini Cientista é um app Streamlit integrado ao Databricks, pensado para agili
         st.write("Facilita iniciar experimentos AutoML (classificação, regressão, forecast) quando disponível no ambiente Databricks.")
         st.markdown("#### Como usar")
         st.write("Forneça um SQL que gere o dataset, selecione o alvo (e tempo/frequência/horizonte para forecast) e inicie o AutoML. Em ambientes sem AutoML, uma mensagem informará indisponibilidade.")
+
+    st.markdown("### Glossário rápido")
+    st.write("""
+- Média móvel (MM): média calculada sobre uma janela deslizante de pontos no tempo. 
+- Resíduo: diferença entre o valor observado e o valor esperado (ex.: média móvel). 
+- Z-score: valor padronizado que indica quantos desvios padrões o ponto está distante do esperado. 
+- MAD (Median Absolute Deviation): medida robusta de variabilidade; menos sensível a outliers que o desvio padrão. 
+- KMeans: algoritmo de agrupamento que particiona os dados em k grupos com centróides otimizados. 
+- Inércia: soma das distâncias ao centro; usada para avaliar compacidade dos clusters. 
+- Silhouette: métrica de separação dos clusters (de -1 a 1). 
+- PCA: técnica de redução de dimensionalidade, projeta dados em eixos de maior variância. 
+- Correlação (Pearson): grau de relação linear entre duas variáveis (entre -1 e 1). 
+- Intervalo de confiança: faixa que expressa incerteza em uma estimativa ou previsão.
+    """)
 
     st.markdown("### Boas práticas gerais")
     st.write("""
