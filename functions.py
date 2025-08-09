@@ -1012,6 +1012,16 @@ def clustering_page():
         st.warning("Sem dados retornados.")
         return
 
+    # Verificar dependências
+    try:
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.cluster import KMeans
+        from sklearn.decomposition import PCA
+    except ModuleNotFoundError:
+        st.error("Dependência ausente: scikit-learn. Instale o pacote 'scikit-learn' no ambiente do app/cluster e recarregue.")
+        st.caption("Exemplo: pip install scikit-learn")
+        return
+
     # Selecionar colunas numéricas
     num_df = df.select_dtypes(include=['number']).copy()
     if num_df.shape[1] < 2:
@@ -1019,10 +1029,6 @@ def clustering_page():
         return
 
     # Escalonamento opcional
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.cluster import KMeans
-    from sklearn.decomposition import PCA
-
     X = num_df.fillna(num_df.mean(numeric_only=True))
     if scale:
         scaler = StandardScaler()
