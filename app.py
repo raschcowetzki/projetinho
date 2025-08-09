@@ -65,8 +65,6 @@ with st.sidebar:
             "Extração de Tópicos",
             "Clusterização",
             "Análise de Dados (EDA)",
-            "Genie Chat",
-            "AutoML",
             "Sobre"
         ],
         icons=[
@@ -77,8 +75,6 @@ with st.sidebar:
             "list-ul",
             "diagram-3",
             "bar-chart",
-            "chat",
-            "cpu",
             "info-circle"
         ],
         on_change = on_change, key = '1',
@@ -103,10 +99,6 @@ elif st.session_state.selected == "Clusterização":
     clustering_page()
 elif st.session_state.selected == "Análise de Dados (EDA)":
     eda_page()
-elif st.session_state.selected == "Genie Chat":
-    genie_chat()
-elif st.session_state.selected == "AutoML":
-    automl_page()
 elif st.session_state.selected == "Sobre":
     about_page()
 else:

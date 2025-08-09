@@ -668,6 +668,33 @@ LIMIT 5000
     st.dataframe(df_fc[cols_show], use_container_width=True, hide_index=True)
     _download_button(df_fc[cols_show], "Baixar projeção (CSV)", "projecao_ai_forecast.csv")
 
+    with st.expander("Insights (IA)"):
+        ai_toggle = st.toggle("Gerar insights de previsão", value=False)
+        if ai_toggle:
+            try:
+                # Monta prompt com últimos pontos históricos e primeiros previstos
+                hist_tail = df_hist.tail(10)
+                fc_head = df_fc.head(10)[[col_map['ds'], col_map['yhat']]].rename(columns={col_map['ds']:'ds', col_map['yhat']:'yhat'})
+                prompt_lines = [
+                    "Gere um resumo curto sobre a projeção a seguir:",
+                    f"- Série com {len(df_hist)} pontos; horizonte até {horizon_str}",
+                    "- Últimos pontos históricos:" 
+                ]
+                for _, r in hist_tail.iterrows():
+                    prompt_lines.append(f"  - {r['ds']} : {r['y']}")
+                prompt_lines.append("- Primeiros pontos projetados:")
+                for _, r in fc_head.iterrows():
+                    prompt_lines.append(f"  - {r['ds']} : {r['yhat']}")
+                if show_conf and col_map['yhat_lower'] and col_map['yhat_upper']:
+                    prompt_lines.append("- Há uma banda de confiança associada às previsões.")
+                prompt_lines.append("Comente tendência, possíveis sazonalidades e cautelas.")
+                prompt = "\n".join(prompt_lines).replace("'","''")
+                df_ai = sql_query(f"SELECT ai_gen('{prompt}') AS insights")
+                insight_text = df_ai.iloc[0]['insights'] if not df_ai.empty else ""
+                st.markdown(insight_text)
+            except Exception as e:
+                st.warning(f"Não foi possível gerar insights: {e}")
+
 # Genie Chat (embed)
 
 def genie_chat():
@@ -840,374 +867,27 @@ LIMIT 5000
         fig2 = px.bar(by_group.sort_values('anomalias', ascending=False), x=group_col, y='anomalias', title='Contagem de anomalias por grupo')
         st.plotly_chart(fig2, use_container_width=True)
 
-
-def classification_page():
-    st.title("Classificação de Textos")
-    st.caption("Classifique textos em categorias definidas por você e explore a distribuição e exemplos representativos.")
-
-    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
-    with st.expander("Exemplos de SQL"):
-        st.code("""
-SELECT texto, segmento
-FROM minha_tabela
-LIMIT 5000
-""", language="sql")
-    if not qstate['text']:
-        st.info("Escreva sua consulta e clique em Run.")
-        return
-
-    # Inferir colunas
-    try:
-        df_zero = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 0")
-        cols = list(df_zero.columns)
-        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None, help="Coluna que contém o texto a classificar.")
-        seg_col = st.selectbox("Coluna de segmento (opcional)", options=["(nenhum)"] + cols, help="Categoria para comparar distribuições (ex.: região, canal).")
-    except Exception as e:
-        st.error(f"Não foi possível inferir colunas: {e}")
-        return
-
-    st.subheader("Parâmetros")
-    c1, c2, c3 = st.columns([2,1,1])
-    with c1:
-        labels = st_tags(label='Categorias (labels):', text='ENTER para adicionar', value=["Positivo","Negativo","Neutro"]) 
-    with c2:
-        include_other = st.toggle("Incluir 'OTHER'", value=True, help="Adiciona uma categoria coringa para textos que não se encaixam bem nos rótulos.")
-    with c3:
-        limit = st.number_input("Limite de linhas", min_value=50, max_value=20000, value=1000, step=50, help="Quantidade de linhas processadas.")
-
-    with st.expander("Avançado"):
-        regex_filter = st.text_input("Filtro (RLIKE) no texto", value="", help="Expressão regular Databricks SQL para filtrar textos.")
-        extract_kp = st.toggle("Extrair frases‑chave por classe", value=False, help="Usa ai_extract para listar frases‑chave mais comuns por classe.")
-        top_n_kp = st.number_input("Top N frases‑chave", min_value=5, max_value=50, value=15, step=5)
-
-    run = st.button("Classificar", type="primary")
-    if not run:
-        return
-
-    # Montar subconsulta base
-    where_clause = f"WHERE {text_col} RLIKE '{regex_filter}'" if regex_filter else ""
-    base_sql = f"SELECT {text_col} AS texto" + (f", {seg_col} AS segmento" if seg_col and seg_col != "(nenhum)" else "") + f" FROM ({qstate['text']}) {where_clause} LIMIT {int(limit)}"
-
-    # Labels
-    lab = [l.strip() for l in labels if l and l.strip()]
-    if include_other and 'OTHER' not in lab:
-        lab.append('OTHER')
-    if not lab:
-        st.warning("Informe ao menos um rótulo.")
-        return
-    labs_str = "'" + "','".join(lab) + "'"
-
-    # Classificação
-    with st.spinner("Classificando textos..."):
-        cls_sql = f"SELECT * FROM (SELECT texto" + (", segmento" if seg_col and seg_col != "(nenhum)" else "") + f", ai_classify(texto, ARRAY({labs_str})) AS classe FROM ({base_sql}))"
-        try:
-            df_cls = sql_query(cls_sql)
-        except Exception as e:
-            st.error(f"Falha na classificação: {e}")
-            return
-
-    if df_cls.empty:
-        st.warning("Sem resultados após classificação.")
-        return
-
-    st.subheader("Distribuições")
-    # Geral
-    counts = df_cls.groupby('classe').size().reset_index(name='quantidade').sort_values('quantidade', ascending=False)
-    fig = px.bar(counts, x='classe', y='quantidade', title='Distribuição por classe')
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Por segmento
-    if 'segmento' in df_cls.columns:
-        by_seg = df_cls.groupby(['segmento','classe']).size().reset_index(name='quantidade')
-        fig2 = px.bar(by_seg, x='segmento', y='quantidade', color='classe', barmode='stack', title='Distribuição por segmento')
-        st.plotly_chart(fig2, use_container_width=True)
-
-    st.subheader("Exemplos representativos")
-    tabs = st.tabs([f"{c}" for c in counts['classe'].tolist()])
-    for i, c in enumerate(counts['classe'].tolist()):
-        with tabs[i]:
-            sample = df_cls[df_cls['classe'] == c].copy()
-            # Heurística simples: exemplos mais longos
-            sample['len'] = sample['texto'].astype(str).apply(len)
-            show = sample.sort_values('len', ascending=False).head(8)[['texto'] + (["segmento"] if 'segmento' in df_cls.columns else [])]
-            for idx, row in show.iterrows():
-                if 'segmento' in show.columns:
-                    st.write(f"• ({row['segmento']}) {row['texto']}")
-                else:
-                    st.write(f"• {row['texto']}")
-            _download_button(sample.drop(columns=['len'], errors='ignore'), f"Baixar exemplos ({c})", f"exemplos_{c}.csv")
-
-    if extract_kp:
-        st.subheader("Frases‑chave por classe (ai_extract)")
-        kp_frames = []
-        for c in counts['classe'].tolist():
+    with st.expander("Insights (IA)"):
+        ai_toggle = st.toggle("Gerar insights de anomalias", value=False)
+        if ai_toggle:
             try:
-                sub_sql = f"SELECT ai_extract(texto, ARRAY('key_phrase')) AS kp FROM ({cls_sql}) WHERE classe = '{c}'"
-                df_kp_raw = sql_query(sub_sql)
-                # Flatten
-                rows = []
-                for _, r in df_kp_raw.iterrows():
-                    kp = r.get('kp')
-                    if isinstance(kp, str):
-                        try:
-                            kp = json.loads(kp)
-                        except Exception:
-                            kp = None
-                    if isinstance(kp, dict):
-                        for _, vals in kp.items():
-                            if isinstance(vals, list):
-                                for v in vals:
-                                    rows.append({'classe': c, 'frase': str(v)})
-                if rows:
-                    dfk = pd.DataFrame(rows)
-                    dfk = dfk[dfk['frase'].str.len() > 0]
-                    kp_frames.append(dfk)
-            except Exception:
-                continue
-        if kp_frames:
-            all_kp = pd.concat(kp_frames, ignore_index=True)
-            agg = all_kp.groupby(['classe','frase']).size().reset_index(name='quantidade').sort_values(['classe','quantidade'], ascending=[True, False])
-            st.dataframe(agg.groupby('classe').head(int(top_n_kp)), use_container_width=True, hide_index=True)
-        else:
-            st.info("Não foi possível extrair frases‑chave.")
-
-    st.subheader("Resultados")
-    st.dataframe(df_cls, use_container_width=True, hide_index=True)
-    _download_button(df_cls, "Baixar classificação (CSV)", "classificacao.csv")
-
-
-def topic_extraction_page():
-    st.title("Extração de Tópicos")
-    st.caption("Extraia tópicos e frases‑chave de textos e compare por segmentos.")
-
-    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
-    with st.expander("Exemplos de SQL"):
-        st.code("""
-SELECT texto, segmento
-FROM minha_tabela
-LIMIT 5000
-""", language="sql")
-    if not qstate['text']:
-        st.info("Escreva sua consulta e clique em Run.")
-        return
-
-    try:
-        df_zero = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 0")
-        cols = list(df_zero.columns)
-        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None, help="Coluna que contém os textos a analisar.")
-        seg_col = st.selectbox("Coluna de segmento (opcional)", options=["(nenhum)"] + cols, help="Categoria para comparar frequências (ex.: região, canal).")
-    except Exception as e:
-        st.error(f"Não foi possível inferir colunas: {e}")
-        return
-
-    st.subheader("Parâmetros")
-    c1, c2 = st.columns([2,1])
-    with c1:
-        types = st_tags(label='Tipos (topic, key_phrase):', text='ENTER para adicionar', value=['topic','key_phrase'])
-    with c2:
-        limit = st.number_input("Limite de linhas", min_value=50, max_value=20000, value=2000, step=50, help="Quantidade de linhas da consulta a processar.")
-
-    with st.expander("Avançado"):
-        top_n = st.number_input("Top N termos", min_value=5, max_value=100, value=40, step=5, help="Quantidade máxima de termos no ranking.")
-        regex_filter = st.text_input("Regex filtro (opcional)", value="", help="Filtra termos pelo padrão informado (expressão regular).")
-        ai_insights = st.toggle("Gerar insights (IA)", value=False, help="Resumo textual dos principais temas.")
-
-    run = st.button("Extrair tópicos", type="primary")
-    if not run:
-        return
-
-    types_clean = [t.strip() for t in types if t and t.strip()]
-    if not types_clean:
-        st.warning("Informe ao menos um tipo de extração.")
-        return
-
-    types_str = "'" + "','".join(types_clean) + "'"
-    with st.spinner("Executando ai_extract..."):
-        base_sql = f"SELECT {text_col} AS texto" + (f", {seg_col} AS segmento" if seg_col and seg_col != "(nenhum)" else "") + f" FROM ({qstate['text']}) LIMIT {int(limit)}"
-        q = f"SELECT texto" + (", segmento" if seg_col and seg_col != "(nenhum)" else "") + f", ai_extract(texto, ARRAY({types_str})) AS extracao FROM ({base_sql})"
-        try:
-            df_raw = sql_query(q)
-        except Exception as e:
-            st.error(f"Falha em ai_extract: {e}")
-            return
-
-    # Normalizar
-    rows = []
-    for i, r in df_raw.iterrows():
-        data = r.get('extracao')
-        segv = r.get('segmento') if 'segmento' in df_raw.columns else None
-        try:
-            if isinstance(data, str):
-                data = json.loads(data)
-        except Exception:
-            data = None
-        if isinstance(data, dict):
-            for k, vals in data.items():
-                if isinstance(vals, list):
-                    for v in vals:
-                        rows.append({"tipo": k, "valor": str(v), "segmento": segv})
-    df_long = pd.DataFrame(rows) if rows else pd.DataFrame(columns=['tipo','valor','segmento'])
-    if not df_long.empty and regex_filter:
-        df_long = df_long[df_long['valor'].str.contains(regex_filter, na=False, regex=True)]
-
-    st.subheader("Resultados")
-    if df_long.empty:
-        st.info("Sem termos extraídos.")
-        return
-
-    # Por tipo (global)
-    counts = df_long.groupby(['tipo','valor']).size().reset_index(name='quantidade').sort_values('quantidade', ascending=False)
-    fig = px.bar(counts.groupby('tipo').head(int(top_n)), x='valor', y='quantidade', color='tipo', title='Top termos por tipo (global)')
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Por segmento
-    if 'segmento' in df_long.columns and df_long['segmento'].notna().any():
-        seg_counts = df_long.groupby(['segmento','tipo']).size().reset_index(name='quantidade')
-        fig2 = px.bar(seg_counts, x='segmento', y='quantidade', color='tipo', barmode='stack', title='Distribuição por segmento e tipo')
-        st.plotly_chart(fig2, use_container_width=True)
-
-    # Tabela e download
-    st.dataframe(df_long, use_container_width=True, hide_index=True)
-    _download_button(df_long, "Baixar extração (CSV)", "topicos_normalizado.csv")
-
-    if ai_insights:
-        st.subheader("Insights gerados por IA")
-        try:
-            # Pequeno prompt com top termos
-            tops = counts.groupby('tipo').head(10)
-            tops_agg = tops.groupby('tipo')['valor'].apply(lambda s: ', '.join(s.head(10))).to_dict()
-            prompt_lines = ["Gere um resumo breve dos principais temas observados:"]
-            for t, vals in tops_agg.items():
-                prompt_lines.append(f"- {t}: {vals}")
-            prompt = "\n".join(prompt_lines).replace("'", "''")
-            df_ai = sql_query(f"SELECT ai_gen('{prompt}') AS insights")
-            insight_text = df_ai.iloc[0]['insights'] if not df_ai.empty else ""
-            st.markdown(insight_text)
-        except Exception as e:
-            st.warning(f"Não foi possível gerar insights: {e}")
-
-def pii_redaction_page():
-    st.title("Mascaramento de PII")
-    st.caption("Detecte e mascare informações sensíveis (PII) em textos.")
-
-    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
-    if not qstate['text']:
-        st.info("Escreva sua consulta e clique em Run.")
-        return
-
-    try:
-        df_zero = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 0")
-        cols = list(df_zero.columns)
-        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None)
-    except Exception as e:
-        st.error(f"Não foi possível inferir colunas: {e}")
-        return
-
-    st.subheader("Parâmetros")
-    pii_defaults = ['person','email','phone','credit_card','bank_account','ssn','address']
-    types = st_tags(label='Tipos de PII:', text='Pressione ENTER para adicionar', value=pii_defaults)
-    mask_token = st.text_input("Token de máscara", value="[REDACTED]")
-    limit = st.number_input("Limite de linhas", min_value=50, max_value=10000, value=1000, step=50)
-
-    run = st.button("Mascarar", type="primary")
-    if not run:
-        return
-
-    t_clean = [t.strip() for t in types if t and t.strip()]
-    t_str = "'" + "','".join(t_clean) + "'"
-    with st.spinner("Detectando PII..."):
-        q = f"SELECT {text_col} AS texto, ai_extract({text_col}, ARRAY({t_str})) AS pii FROM ({qstate['text']}) LIMIT {int(limit)}"
-        try:
-            df = sql_query(q)
-        except Exception as e:
-            st.error(f"Falha ao extrair PII: {e}")
-            return
-
-    # Aplicar máscara
-    def _mask_text(row):
-        text = str(row['texto'])
-        ents = row.get('pii')
-        try:
-            if isinstance(ents, str):
-                ents = json.loads(ents)
-        except Exception:
-            pass
-        if isinstance(ents, dict):
-            for _, vals in ents.items():
-                if isinstance(vals, list):
-                    for v in vals:
-                        try:
-                            text = text.replace(str(v), mask_token)
-                        except Exception:
-                            continue
-        return text
-
-    df['mascarado'] = df.apply(_mask_text, axis=1)
-
-    st.subheader("Resultados")
-    st.dataframe(df[['texto','mascarado','pii']], use_container_width=True, hide_index=True)
-    _download_button(df[['texto','mascarado','pii']], "Baixar (CSV)", "pii_mascarado.csv")
-
-# ----------------------------
-# Similaridade / Deduplicação (aprox.)
-# ----------------------------
-
-def similarity_page():
-    st.title("Similaridade e Deduplicação")
-    st.caption("Encontre textos semelhantes ou duplicados (aproximação via Jaccard de tokens).")
-
-    qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
-    if not qstate['text']:
-        st.info("Escreva sua consulta e clique em Run.")
-        return
-
-    try:
-        df = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 1000")
-        cols = list(df.columns)
-        text_col = st.selectbox("Coluna de texto", options=cols, index=0 if cols else None)
-    except Exception as e:
-        st.error(f"Erro ao executar consulta: {e}")
-        return
-
-    st.subheader("Parâmetros")
-    c1, c2 = st.columns([1,1])
-    with c1:
-        threshold = st.slider("Limiar de similaridade (Jaccard)", min_value=0.1, max_value=0.9, value=0.7, step=0.05)
-    with c2:
-        max_pairs = st.number_input("Máx. pares retornados", min_value=20, max_value=5000, value=200, step=20)
-
-    run = st.button("Detectar similares", type="primary")
-    if not run:
-        return
-
-    # Similaridade aproximada Jaccard sobre tokens simples
-    texts = df[text_col].astype(str).tolist()
-    tokenized = [set(t.lower().split()) for t in texts]
-    pairs = []
-    n = len(tokenized)
-    for i in range(n):
-        for j in range(i+1, n):
-            a, b = tokenized[i], tokenized[j]
-            if not a or not b:
-                continue
-            inter = len(a & b)
-            union = len(a | b)
-            sim = inter / union if union else 0.0
-            if sim >= threshold:
-                pairs.append({"idx_a": i, "idx_b": j, "sim_jaccard": sim, "texto_a": texts[i][:300], "texto_b": texts[j][:300]})
-            if len(pairs) >= max_pairs:
-                break
-        if len(pairs) >= max_pairs:
-            break
-
-    res = pd.DataFrame(pairs)
-    if res.empty:
-        st.info("Nenhum par semelhante encontrado com o limiar atual.")
-        return
-
-    st.subheader("Resultados")
-    st.dataframe(res, use_container_width=True, hide_index=True)
-    _download_button(res, "Baixar pares (CSV)", "similares.csv")
+                total = int(dplot['is_anomaly'].sum())
+                prompt_lines = [
+                    "Resuma a detecção de anomalias:",
+                    f"- Janela: {int(window)}; Método: {method}; Limite: {z_thresh}",
+                    f"- Total de anomalias detectadas no recorte: {total}",
+                ]
+                if group_col and group_col != "(nenhum)" and group_col in df.columns:
+                    topg = by_group.sort_values('anomalias', ascending=False).head(5)
+                    prompt_lines.append("- Grupos com mais anomalias:")
+                    for _, r in topg.iterrows():
+                        prompt_lines.append(f"  - {r[group_col]}: {int(r['anomalias'])}")
+                prompt_lines.append("Sugira hipóteses de causa e próximos passos (ex.: analisar períodos, segmentações, sazonalidade).")
+                prompt = "\n".join(prompt_lines).replace("'","''")
+                df_ai = sql_query(f"SELECT ai_gen('{prompt}') AS insights")
+                st.markdown(df_ai.iloc[0]['insights'] if not df_ai.empty else "")
+            except Exception as e:
+                st.warning(f"Não foi possível gerar insights: {e}")
 
 # ----------------------------
 # Clusterização automática (KMeans + PCA)
@@ -1337,6 +1017,23 @@ LIMIT 10000
         st.plotly_chart(fig_e, use_container_width=True)
         _download_button(df_elbow, "Baixar elbow (CSV)", "elbow.csv")
 
+    with st.expander("Insights (IA)"):
+        ai_toggle = st.toggle("Gerar insights de clusterização", value=False)
+        if ai_toggle:
+            try:
+                dist_counts = out['cluster'].value_counts().to_dict()
+                prompt_lines = ["Resuma a clusterização:"]
+                prompt_lines.append("- Tamanho dos clusters:")
+                for cid, cnt in dist_counts.items():
+                    prompt_lines.append(f"  - Cluster {cid}: {int(cnt)}")
+                if sil is not None:
+                    prompt_lines.append(f"- Silhouette: {sil:.3f}")
+                prompt_lines.append("Comente sobre separação dos grupos, possíveis interpretações e próximos passos (ex.: perfis, variáveis que mais pesam).")
+                prompt = "\n".join(prompt_lines).replace("'","''")
+                df_ai = sql_query(f"SELECT ai_gen('{prompt}') AS insights")
+                st.markdown(df_ai.iloc[0]['insights'] if not df_ai.empty else "")
+            except Exception as e:
+                st.warning(f"Não foi possível gerar insights: {e}")
 
 # ----------------------------
 # Análise Exploratória de Dados (EDA)
