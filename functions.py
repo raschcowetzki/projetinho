@@ -234,7 +234,6 @@ def extract_entities():
     st.title("Extração de Entidades")
     st.caption("Extraia e analise entidades de textos usando ai_extract. Forneça uma consulta que retorne uma coluna de texto e selecione os tipos de entidades.")
 
-    # Editor de consulta
     query_state = code_editor(
         "",
         lang="sql",
@@ -243,11 +242,17 @@ def extract_entities():
             {"name": "Run", "feather": "Play", "hasText": True, "showWithIcon": True, "commands": ["submit"], "alwaysOn": True, "style": {"bottom": "6px", "right": "0.4rem"}}
         ]
     )
+    with st.expander("Exemplos de SQL"):
+        st.code("""
+-- Exemplo simples
+SELECT texto
+FROM minha_tabela
+LIMIT 1000
+""", language="sql")
     if not query_state['text']:
         st.info("Escreva sua consulta acima e clique em Run para habilitar os parâmetros.")
         return
 
-    # Seleção de coluna de texto
     try:
         df_zero = sql_query(f"SELECT * FROM ({query_state['text']}) LIMIT 0")
         cols = list(df_zero.columns)
@@ -256,11 +261,9 @@ def extract_entities():
         st.error(f"Não foi possível inferir as colunas: {e}")
         return
 
-    # Parâmetros
     st.subheader("Parâmetros")
-    c1, c2, c3 = st.columns([2,1,1])
+    c1, c2 = st.columns([2,1])
     with c1:
-        # Lista curada de tipos comuns suportados por ai_extract
         curated = [
             'person','organization','location','date','time','datetime','email','phone',
             'url','money','quantity','event','product','title','nationality','language'
@@ -270,10 +273,15 @@ def extract_entities():
         entity_types = [t for t in selected] + [t.strip() for t in extra if t and t.strip()]
     with c2:
         limit = st.number_input("Limite de linhas", min_value=50, max_value=20000, value=1000, step=50)
-        top_n = st.number_input("Top N (agregados)", min_value=5, max_value=100, value=30, step=5)
-    with c3:
-        normalize_case = st.toggle("Normalizar caixa (lowercase)", value=True)
-        drop_numeric = st.toggle("Remover números puros", value=True)
+
+    with st.expander("Avançado"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            top_n = st.number_input("Top N (agregados)", min_value=5, max_value=100, value=30, step=5)
+            normalize_case = st.toggle("Normalizar caixa (lowercase)", value=True)
+        with col_b:
+            drop_numeric = st.toggle("Remover números puros", value=True)
+            regex_filter = st.text_input("Regex filtro de valor (opcional)", value="")
 
     run = st.button("Extrair entidades", type="primary")
     if not run:
@@ -283,7 +291,6 @@ def extract_entities():
         st.warning("Informe ao menos um tipo de entidade.")
         return
 
-    # Executa ai_extract
     types_str = "'" + "','".join(entity_types) + "'"
     with st.spinner("Executando ai_extract no warehouse..."):
         q = f"SELECT {text_col} AS texto, ai_extract({text_col}, ARRAY({types_str})) AS entidades FROM ({query_state['text']}) LIMIT {int(limit)}"
@@ -293,7 +300,6 @@ def extract_entities():
             st.error(f"Falha ao executar ai_extract: {e}")
             return
 
-    # Normalização de resultados em formato long
     def _flatten_entities(df: pd.DataFrame) -> pd.DataFrame:
         rows = []
         for idx, row in df.iterrows():
@@ -318,12 +324,13 @@ def extract_entities():
                 out['valor'] = out['valor'].str.lower()
             if drop_numeric:
                 out = out[~out['valor'].str.fullmatch(r"\d+(?:[.,]\d+)?", na=False)]
+            if regex_filter:
+                out = out[out['valor'].str.contains(regex_filter, na=False, regex=True)]
             out = out[out['valor'].str.len() > 0]
         return out
 
     df_long = _flatten_entities(df_raw)
 
-    # Métricas
     st.subheader("Visão geral")
     colm = st.columns(3)
     total_rows = len(df_raw)
@@ -333,18 +340,15 @@ def extract_entities():
     colm[1].metric("Linhas com entidades", f"{rows_with_entities}")
     colm[2].metric("Entidades distintas", f"{distinct_entities}")
 
-    # Abas de resultados
     tab_overview, tab_entities, tab_aggs, tab_raw = st.tabs(["Resumo", "Entidades", "Agregados", "Bruto"]) 
 
     with tab_overview:
         if df_long.empty:
             st.info("Nenhuma entidade foi detectada.")
         else:
-            # Distribuição por tipo
             by_type = df_long.groupby('tipo').size().reset_index(name='quantidade').sort_values('quantidade', ascending=False)
             fig = px.bar(by_type, x='tipo', y='quantidade', title='Distribuição por tipo de entidade')
             st.plotly_chart(fig, use_container_width=True)
-            # Top entidades globais
             counts_global = df_long.groupby('valor').size().reset_index(name='quantidade').sort_values('quantidade', ascending=False)
             fig2 = px.bar(counts_global.head(int(top_n)), x='valor', y='quantidade', title=f'Top {int(top_n)} entidades (todas)')
             st.plotly_chart(fig2, use_container_width=True)
@@ -353,7 +357,6 @@ def extract_entities():
         if df_long.empty:
             st.info("Sem entidades para exibir.")
         else:
-            # Filtros rápidos
             f1, f2 = st.columns([1,2])
             with f1:
                 type_filter = st.multiselect("Filtrar tipos", options=sorted(df_long['tipo'].unique().tolist()), default=None)
@@ -524,6 +527,14 @@ def forecast_projection():
     st.caption("Forneça uma consulta que retorne colunas de tempo e valor.")
 
     query_state = code_editor("", lang="sql", height="250px", buttons=[{"name": "Run", "feather": "Play", "hasText": True, "showWithIcon": True, "commands": ["submit"], "alwaysOn": True, "style": {"bottom": "6px", "right": "0.4rem"}}])
+    with st.expander("Exemplos de SQL"):
+        st.code("""
+-- Exemplo simples
+SELECT ts AS tempo, valor
+FROM minha_tabela
+ORDER BY ts
+LIMIT 5000
+""", language="sql")
     if not query_state['text']:
         st.info("Escreva sua consulta à esquerda e clique em Run.")
         return
@@ -538,17 +549,27 @@ def forecast_projection():
         st.error(f"Não foi possível inferir as colunas: {e}")
         return
 
-    col_a, col_b = st.columns([1,1])
+    st.subheader("Parâmetros")
+    col_a, col_b, col_c = st.columns([1,1,1])
     with col_a:
-        frequency = st.selectbox("Frequência", ["D","W","M"], index=0, help="Periodicidade dos dados")
+        horizon_mode = st.selectbox("Modo de horizonte", ["Relativo (N unidades)", "Absoluto (timestamp)"])
     with col_b:
+        frequency = st.selectbox("Frequência", ["D","W","M"], index=0, help="Periodicidade dos dados (modo relativo)")
+    with col_c:
+        show_conf = st.toggle("Exibir intervalo de confiança", value=True)
+
+    if horizon_mode == "Relativo (N unidades)":
         horizon = st.number_input("Horizonte (períodos)", min_value=1, max_value=365, value=30)
+        absolute_horizon_str = None
+    else:
+        absolute_horizon_str = st.text_input("Horizon (timestamp)", value="", placeholder="YYYY-MM-DD HH:MM:SS")
+        horizon = None
 
     run = st.button("Executar previsão", type="primary")
     if not run:
         return
 
-    # Consultar histórico primeiro (necessário para calcular horizon como TIMESTAMP)
+    # Consultar histórico primeiro (necessário para calcular horizon relativo)
     with st.spinner("Consultando dados históricos..."):
         df_hist = sql_query(f"SELECT {time_col} AS ds, {value_col} AS y FROM ({query_state['text']}) ORDER BY {time_col}")
     if df_hist.empty:
@@ -559,13 +580,16 @@ def forecast_projection():
     try:
         df_hist['ds'] = pd.to_datetime(df_hist['ds'])
         last_date = df_hist['ds'].max()
-        if frequency == 'D':
-            horizon_end = last_date + pd.Timedelta(days=int(horizon))
-        elif frequency == 'W':
-            horizon_end = last_date + pd.Timedelta(weeks=int(horizon))
+        if absolute_horizon_str:
+            horizon_str = absolute_horizon_str
         else:
-            horizon_end = last_date + pd.DateOffset(months=int(horizon))
-        horizon_str = horizon_end.strftime('%Y-%m-%d %H:%M:%S')
+            if frequency == 'D':
+                horizon_end = last_date + pd.Timedelta(days=int(horizon))
+            elif frequency == 'W':
+                horizon_end = last_date + pd.Timedelta(weeks=int(horizon))
+            else:
+                horizon_end = last_date + pd.DateOffset(months=int(horizon))
+            horizon_str = horizon_end.strftime('%Y-%m-%d %H:%M:%S')
     except Exception as e:
         st.error(f"Falha ao calcular o horizonte da previsão: {e}")
         return
@@ -616,8 +640,10 @@ def forecast_projection():
     try:
         import plotly.graph_objects as go
         fig = go.Figure()
+        # Histórico
         fig.add_trace(go.Scatter(x=pd.to_datetime(df_hist['ds']), y=pd.to_numeric(df_hist['y'], errors='coerce'), name='Histórico', mode='lines', line=dict(color='#2a9d8f')))
-        if col_map['yhat_lower'] and col_map['yhat_upper']:
+        # Banda de confiança opcional
+        if show_conf and col_map['yhat_lower'] and col_map['yhat_upper']:
             fig.add_traces([
                 go.Scatter(
                     x=pd.to_datetime(df_fc[col_map['ds']]),
@@ -630,13 +656,13 @@ def forecast_projection():
                     mode='lines', line=dict(width=0), name='Limite Inferior', fill='tonexty', fillcolor='rgba(63,161,16,0.2)', showlegend=False
                 )
             ])
+        # Previsão principal
         fig.add_trace(go.Scatter(x=pd.to_datetime(df_fc[col_map['ds']]), y=pd.to_numeric(df_fc[col_map['yhat']], errors='coerce'), name='Projeção', mode='lines', line=dict(color='#3FA110')))
-        fig.update_layout(title='Histórico e Projeção com Intervalo (ai_forecast)', xaxis_title='Tempo', yaxis_title=value_col)
+        fig.update_layout(title='Histórico e Projeção (ai_forecast)', xaxis_title='Tempo', yaxis_title=value_col)
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.error(f"Falha ao montar o gráfico: {e}")
 
-    # Tabelas e download
     st.subheader("Resultados")
     cols_show = [c for c in [col_map['ds'], col_map['yhat_lower'], col_map['yhat'], col_map['yhat_upper']] if c]
     st.dataframe(df_fc[cols_show], use_container_width=True, hide_index=True)
@@ -717,11 +743,17 @@ def anomaly_detection_page():
     st.caption("Forneça uma consulta com tempo e valor; identifique outliers estatísticos e visualize no gráfico.")
 
     qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
+    with st.expander("Exemplos de SQL"):
+        st.code("""
+SELECT ts, valor, categoria
+FROM minha_tabela
+ORDER BY ts
+LIMIT 5000
+""", language="sql")
     if not qstate['text']:
         st.info("Escreva sua consulta e clique em Run.")
         return
 
-    # Inferência
     try:
         df_zero = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 0")
         cols = list(df_zero.columns)
@@ -734,54 +766,94 @@ def anomaly_detection_page():
     st.subheader("Parâmetros")
     c1, c2, c3 = st.columns([1,1,1])
     with c1:
-        window = st.number_input("Janela (média móvel)", min_value=3, max_value=365, value=20)
+        method = st.selectbox("Método", ["Z-score (resíduo MM)", "MAD (resíduo MM)"])
     with c2:
-        z_thresh = st.number_input("Z-score limite", min_value=1.0, max_value=10.0, value=3.0)
+        window = st.number_input("Janela (MM)", min_value=3, max_value=365, value=20)
     with c3:
-        limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100)
+        z_thresh = st.number_input("Z/MAD limite", min_value=1.0, max_value=10.0, value=3.0)
+
+    with st.expander("Avançado"):
+        cA, cB = st.columns([1,1])
+        with cA:
+            limit = st.number_input("Limite de linhas", min_value=100, max_value=200000, value=5000, step=100)
+            group_col = st.selectbox("Agrupar por (opcional)", options=["(nenhum)"] + [c for c in cols if c not in (time_col, value_col)])
+        with cB:
+            group_to_plot = st.selectbox("Grupo para visualizar", options=["(auto)"])
 
     run = st.button("Detectar anomalias", type="primary")
     if not run:
         return
 
     with st.spinner("Executando consulta..."):
-        df = sql_query(f"SELECT {time_col} AS ds, {value_col} AS y FROM ({qstate['text']}) ORDER BY {time_col} LIMIT {int(limit)}")
+        df = sql_query(f"SELECT * FROM ({qstate['text']}) ORDER BY {time_col} LIMIT {int(limit)}")
     if df.empty:
         st.warning("Sem dados retornados.")
         return
 
-    # Detectar anomalias: z-score sobre resíduo da média móvel
-    df['ds'] = pd.to_datetime(df['ds'])
-    y_num = pd.to_numeric(df['y'], errors='coerce')
-    roll = y_num.rolling(int(window), min_periods=5).mean()
-    resid = y_num - roll
-    std = resid.rolling(int(window), min_periods=5).std()
-    z = (resid / std).abs()
-    df['is_anomaly'] = (z > z_thresh)
+    df['ds'] = pd.to_datetime(df[time_col])
+    df['y'] = pd.to_numeric(df[value_col], errors='coerce')
 
-    # Gráfico
+    def detect_series(d: pd.DataFrame) -> pd.DataFrame:
+        d = d.sort_values('ds').copy()
+        roll = d['y'].rolling(int(window), min_periods=5).mean()
+        resid = d['y'] - roll
+        if method.startswith("MAD"):
+            med = resid.rolling(int(window), min_periods=5).median()
+            mad = (resid - med).abs().rolling(int(window), min_periods=5).median()
+            score = (resid - med).abs() / (mad.replace(0, pd.NA))
+        else:
+            std = resid.rolling(int(window), min_periods=5).std()
+            score = (resid / std.replace(0, pd.NA)).abs()
+        d['is_anomaly'] = (score > z_thresh).fillna(False)
+        return d
+
+    if group_col and group_col != "(nenhum)" and group_col in df.columns:
+        groups = df[group_col].dropna().unique().tolist()
+        if group_to_plot == "(auto)":
+            group_to_plot = groups[0] if groups else None
+        df = df.groupby(group_col, group_keys=False).apply(detect_series)
+        st.subheader("Resultados do grupo selecionado")
+        if group_to_plot is not None:
+            dplot = df[df[group_col] == group_to_plot]
+        else:
+            dplot = df
+    else:
+        df = detect_series(df)
+        dplot = df
+
     import plotly.graph_objects as go
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['ds'], y=y_num, name='Valor', mode='lines', line=dict(color='#2a9d8f')))
-    anom = df[df['is_anomaly']]
+    fig.add_trace(go.Scatter(x=dplot['ds'], y=dplot['y'], name='Valor', mode='lines', line=dict(color='#2a9d8f')))
+    anom = dplot[dplot['is_anomaly']]
     if not anom.empty:
-        fig.add_trace(go.Scatter(x=anom['ds'], y=pd.to_numeric(anom['y'], errors='coerce'), mode='markers', name='Anomalias', marker=dict(color='#e76f51', size=9)))
-    fig.update_layout(title='Série e Anomalias (z-score de resíduos)', xaxis_title='Tempo', yaxis_title=value_col)
+        fig.add_trace(go.Scatter(x=anom['ds'], y=anom['y'], mode='markers', name='Anomalias', marker=dict(color='#e76f51', size=9)))
+    title = 'Série e Anomalias' + (f" - grupo {group_to_plot}" if group_col and group_col != "(nenhum)" and group_to_plot else "")
+    fig.update_layout(title=title, xaxis_title='Tempo', yaxis_title=value_col)
     st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Resultados")
-    st.dataframe(df[['ds','y','is_anomaly']], use_container_width=True, hide_index=True)
-    _download_button(df[['ds','y','is_anomaly']], "Baixar (CSV)", "anomalias.csv")
+    st.dataframe(dplot[[time_col, value_col, 'is_anomaly']], use_container_width=True, hide_index=True)
+    _download_button(dplot[[time_col, value_col, 'is_anomaly']], "Baixar (CSV)", "anomalias.csv")
 
-# ----------------------------
-# Extração de tópicos / frases-chave
-# ----------------------------
+    if group_col and group_col != "(nenhum)" and group_col in df.columns:
+        by_group = df.groupby(group_col)['is_anomaly'].sum().reset_index(name='anomalias')
+        st.markdown("#### Anomalias por grupo")
+        st.dataframe(by_group, use_container_width=True, hide_index=True)
+        fig2 = px.bar(by_group.sort_values('anomalias', ascending=False), x=group_col, y='anomalias', title='Contagem de anomalias por grupo')
+        st.plotly_chart(fig2, use_container_width=True)
+
 
 def topic_extraction_page():
     st.title("Extração de Tópicos")
     st.caption("Extraia tópicos e frases-chave de um conjunto de textos e visualize sua frequência.")
 
     qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
+    with st.expander("Exemplos de SQL"):
+        st.code("""
+SELECT texto
+FROM minha_tabela
+LIMIT 1000
+""", language="sql")
     if not qstate['text']:
         st.info("Escreva sua consulta e clique em Run.")
         return
@@ -802,6 +874,10 @@ def topic_extraction_page():
     with c2:
         limit = st.number_input("Limite de linhas", min_value=50, max_value=10000, value=1000, step=50)
 
+    with st.expander("Avançado"):
+        top_n = st.number_input("Top N (agregados)", min_value=5, max_value=100, value=40, step=5)
+        regex_filter = st.text_input("Regex filtro (opcional)", value="")
+
     run = st.button("Extrair tópicos", type="primary")
     if not run:
         return
@@ -820,7 +896,6 @@ def topic_extraction_page():
             st.error(f"Falha em ai_extract: {e}")
             return
 
-    # Normalizar
     def _flatten(df):
         rows = []
         for idx, row in df.iterrows():
@@ -839,7 +914,10 @@ def topic_extraction_page():
                             rows.append({"linha": idx, "tipo": k, "valor": str(v)})
                     else:
                         rows.append({"linha": idx, "tipo": k, "valor": str(vals)})
-        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=['linha','tipo','valor'])
+        out = pd.DataFrame(rows) if rows else pd.DataFrame(columns=['linha','tipo','valor'])
+        if not out.empty and regex_filter:
+            out = out[out['valor'].str.contains(regex_filter, na=False, regex=True)]
+        return out
 
     df_long = _flatten(df_raw)
 
@@ -856,12 +934,9 @@ def topic_extraction_page():
             st.info("Sem dados.")
         else:
             counts = df_long.groupby(["tipo","valor"]).size().reset_index(name="quantidade").sort_values("quantidade", ascending=False)
-            fig = px.bar(counts.head(40), x="valor", y="quantidade", color="tipo", title="Top tópicos / frases")
+            fig = px.bar(counts.head(int(top_n)), x="valor", y="quantidade", color="tipo", title="Top tópicos / frases")
             st.plotly_chart(fig, use_container_width=True)
 
-# ----------------------------
-# PII / Redação (mascaramento)
-# ----------------------------
 
 def pii_redaction_page():
     st.title("Mascaramento de PII")
@@ -995,6 +1070,12 @@ def clustering_page():
     st.caption("Agrupe dados automaticamente a partir de uma consulta SQL. Suporta colunas numéricas e visualização com PCA.")
 
     qstate = code_editor("", lang="sql", height="250px", buttons=[{"name":"Run","feather":"Play","hasText":True,"showWithIcon":True,"commands":["submit"],"alwaysOn":True,"style":{"bottom":"6px","right":"0.4rem"}}])
+    with st.expander("Exemplos de SQL"):
+        st.code("""
+SELECT *
+FROM minha_tabela
+LIMIT 10000
+""", language="sql")
     if not qstate['text']:
         st.info("Escreva sua consulta e clique em Run.")
         return
@@ -1007,6 +1088,17 @@ def clustering_page():
         limit = st.number_input("Limite de linhas", min_value=100, max_value=50000, value=5000, step=100)
     with c3:
         scale = st.toggle("Padronizar (Z-score)", value=True)
+
+    with st.expander("Avançado"):
+        sel_cols = []
+        try:
+            df_head = sql_query(f"SELECT * FROM ({qstate['text']}) LIMIT 1")
+            num_candidates = df_head.select_dtypes(include=['number']).columns.tolist()
+            sel_cols = st.multiselect("Selecionar colunas numéricas específicas", options=num_candidates, default=num_candidates)
+        except Exception:
+            pass
+        elbow = st.toggle("Calcular curva de cotovelo (inércia)", value=False)
+        elbow_range = st.slider("Faixa k (elbow)", min_value=2, max_value=15, value=(2, 8))
 
     run = st.button("Executar clusterização", type="primary")
     if not run:
@@ -1022,23 +1114,23 @@ def clustering_page():
         st.warning("Sem dados retornados.")
         return
 
-    # Verificar dependências
     try:
         from sklearn.preprocessing import StandardScaler
         from sklearn.cluster import KMeans
         from sklearn.decomposition import PCA
+        from sklearn.metrics import silhouette_score
     except ModuleNotFoundError:
         st.error("Dependência ausente: scikit-learn. Instale o pacote 'scikit-learn' no ambiente do app/cluster e recarregue.")
         st.caption("Exemplo: pip install scikit-learn")
         return
 
-    # Selecionar colunas numéricas
     num_df = df.select_dtypes(include=['number']).copy()
+    if sel_cols:
+        num_df = num_df[sel_cols].copy()
     if num_df.shape[1] < 2:
         st.error("A consulta deve retornar ao menos duas colunas numéricas para clusterização.")
         return
 
-    # Escalonamento opcional
     X = num_df.fillna(num_df.mean(numeric_only=True))
     if scale:
         scaler = StandardScaler()
@@ -1046,35 +1138,32 @@ def clustering_page():
     else:
         X_scaled = X.values
 
-    # KMeans
     try:
         kmeans = KMeans(n_clusters=int(k), n_init='auto', random_state=42)
         labels = kmeans.fit_predict(X_scaled)
         centers = kmeans.cluster_centers_
+        sil = silhouette_score(X_scaled, labels) if int(k) > 1 and X.shape[0] > int(k) else None
     except Exception as e:
         st.error(f"Falha no KMeans: {e}")
         return
 
-    # PCA para visualização 2D
     try:
         pca = PCA(n_components=2, random_state=42)
         coords = pca.fit_transform(X_scaled)
-        vis = pd.DataFrame({
-            'pc1': coords[:,0],
-            'pc2': coords[:,1],
-            'cluster': labels.astype(int)
-        })
+        vis = pd.DataFrame({'pc1': coords[:,0], 'pc2': coords[:,1], 'cluster': labels.astype(int)})
         fig = px.scatter(vis, x='pc1', y='pc2', color='cluster', title='Clusters (PCA 2D)')
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.warning(f"PCA não pôde ser executado para visualização: {e}")
 
-    # Saídas
     out = df.copy()
     out['cluster'] = labels
     st.subheader("Resultados")
     st.dataframe(out, use_container_width=True, hide_index=True)
     _download_button(out, "Baixar dados com cluster (CSV)", "clusters.csv")
+
+    if sil is not None:
+        st.caption(f"Silhouette score: {sil:.3f}")
 
     st.subheader("Centroides (no espaço escalonado)")
     try:
@@ -1084,6 +1173,22 @@ def clustering_page():
         _download_button(centers_df, "Baixar centroides (CSV)", "centroides.csv")
     except Exception:
         pass
+
+    if elbow:
+        ks = list(range(elbow_range[0], elbow_range[1]+1))
+        inertias = []
+        for kk in ks:
+            try:
+                km = KMeans(n_clusters=int(kk), n_init='auto', random_state=42)
+                km.fit(X_scaled)
+                inertias.append(km.inertia_)
+            except Exception:
+                inertias.append(None)
+        df_elbow = pd.DataFrame({"k": ks, "inertia": inertias})
+        fig_e = px.line(df_elbow, x='k', y='inertia', markers=True, title='Curva de cotovelo (inércia)')
+        st.plotly_chart(fig_e, use_container_width=True)
+        _download_button(df_elbow, "Baixar elbow (CSV)", "elbow.csv")
+
 
 # ----------------------------
 # Análise Exploratória de Dados (EDA)
